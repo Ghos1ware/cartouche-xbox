@@ -78,12 +78,13 @@ void App::OnLaunched(Windows::ApplicationModel::Activation::LaunchActivatedEvent
 		// When the navigation stack isn't restored navigate to the first page,
 		// configuring the new page by passing required information as a navigation
 		// parameter
-		rootFrame->Navigate(TypeName(HostSelectorPage::typeid), e->Arguments);
+		// Cartouche's interface first; Moonlight's own pages stay one call away (CartouchePage).
+		rootFrame->Navigate(TypeName(CartouchePage::typeid), e->Arguments);
 	}
 
 	if (m_menuPage == nullptr)
 	{
-		m_menuPage = dynamic_cast<HostSelectorPage^>(rootFrame->Content);
+		m_menuPage = dynamic_cast<CartouchePage^>(rootFrame->Content);
 	}
 	// Ensure the current window is active
 	Window::Current->Activate();
@@ -91,7 +92,7 @@ void App::OnLaunched(Windows::ApplicationModel::Activation::LaunchActivatedEvent
 	auto state = GetApplicationState();
 	auto that = this;
 	state->Init().then([that](){
-		that->m_menuPage->OnStateLoaded();
+		if (that->m_menuPage != nullptr) that->m_menuPage->OnStateLoaded();
 	});
 	displayRequest->RequestActive();
 }

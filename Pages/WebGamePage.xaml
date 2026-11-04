@@ -1,0 +1,12 @@
+<Page
+    x:Class="moonlight_xbox_dx.WebGamePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:moonlight_xbox_dx"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    Background="Black">
+    <!-- A browser game, full screen on the TV: B or View + Menu goes back to Cartouche. -->
+    <Grid>
+        <muxc:WebView2 x:Name="Web" />
+    </Grid>
+</Page>

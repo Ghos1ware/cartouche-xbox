@@ -348,3 +348,6 @@ vcpkg_installed
 .stfolder/
 .stignore
 
+
+# Cartouche for Xbox: the sideload bundles
+output/

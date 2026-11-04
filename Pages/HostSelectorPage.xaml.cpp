@@ -8,6 +8,7 @@
 // clang-format on
 #include "HostSelectorPage.xaml.h"
 #include "AppPage.xaml.h"
+#include "CartouchePage.xaml.h"
 #include "Common/ModalDialog.xaml.h"
 #include "HostSettingsPage.xaml.h"
 #include "MoonlightSettings.xaml.h"
@@ -319,6 +320,7 @@ void HostSelectorPage::Connect(MoonlightHost^ host) {
 }
 
 void HostSelectorPage::OnNavigatedTo(Windows::UI::Xaml::Navigation::NavigationEventArgs^ e) {
+	m_back_cookie = Windows::UI::Core::SystemNavigationManager::GetForCurrentView()->BackRequested += ref new EventHandler<Windows::UI::Core::BackRequestedEventArgs^>(this, &HostSelectorPage::OnBackRequested);
 	Windows::UI::ViewManagement::ApplicationView::GetForCurrentView()->SetDesiredBoundsMode(Windows::UI::ViewManagement::ApplicationViewBoundsMode::UseVisible);
 
 	// Windows will do all the hard mDNS work for us
@@ -342,7 +344,13 @@ void HostSelectorPage::OnNavigatedTo(Windows::UI::Xaml::Navigation::NavigationEv
 	Utils::Log("[mDNS] Starting watcher for _nvstream._tcp.local\n");
 }
 
+void HostSelectorPage::OnBackRequested(Platform::Object^ sender, Windows::UI::Core::BackRequestedEventArgs^ args) {
+	args->Handled = true;
+	this->Frame->Navigate(Windows::UI::Xaml::Interop::TypeName(CartouchePage::typeid));
+}
+
 void HostSelectorPage::OnNavigatedFrom(NavigationEventArgs^ e) {
+	Windows::UI::Core::SystemNavigationManager::GetForCurrentView()->BackRequested -= m_back_cookie;
 	Utils::Logf("[mDNS] Stopping watcher\n");
 	deviceWatcherHelper->Reset();
 	discoveredDevices->Clear();

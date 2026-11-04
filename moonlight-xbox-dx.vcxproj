@@ -491,6 +491,12 @@
     </ClInclude>
     <ClInclude Include="State\ScreenResolution.h" />
     <ClInclude Include="State\MoonlightApp.h" />
+    <ClInclude Include="Pages\CartouchePage.xaml.h">
+      <DependentUpon>Pages\CartouchePage.xaml</DependentUpon>
+    </ClInclude>
+    <ClInclude Include="Pages\WebGamePage.xaml.h">
+      <DependentUpon>Pages\WebGamePage.xaml</DependentUpon>
+    </ClInclude>
     <ClInclude Include="Pages\AppPage.xaml.h">
       <DependentUpon>Pages\AppPage.xaml</DependentUpon>
     </ClInclude>
@@ -660,6 +666,12 @@
     </ClCompile>
     <ClCompile Include="State\ScreenResolution.cpp" />
     <ClCompile Include="State\MoonlightApp.cpp" />
+    <ClCompile Include="Pages\CartouchePage.xaml.cpp">
+      <DependentUpon>Pages\CartouchePage.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="Pages\WebGamePage.xaml.cpp">
+      <DependentUpon>Pages\WebGamePage.xaml</DependentUpon>
+    </ClCompile>
     <ClCompile Include="Pages\AppPage.xaml.cpp">
       <DependentUpon>Pages\AppPage.xaml</DependentUpon>
     </ClCompile>
@@ -823,6 +835,8 @@
       <SubType>Designer</SubType>
     </Page>
     <Page Include="KeyboardControl.xaml" />
+    <Page Include="Pages\CartouchePage.xaml" />
+    <Page Include="Pages\WebGamePage.xaml" />
     <Page Include="Pages\AppPage.xaml">
       <SubType>Designer</SubType>
     </Page>
@@ -856,12 +870,14 @@
     <Import Project="$(VSINSTALLDIR)\Common7\IDE\Extensions\Microsoft\VsGraphics\ImageContentTask.targets" />
     <Import Project="$(VSINSTALLDIR)\Common7\IDE\Extensions\Microsoft\VsGraphics\MeshContentTask.targets" />
     <Import Project="$(VSINSTALLDIR)\Common7\IDE\Extensions\Microsoft\VsGraphics\ShaderGraphContentTask.targets" />
-    <Import Project="packages\Microsoft.UI.Xaml.2.7.0\build\native\Microsoft.UI.Xaml.targets" Condition="Exists('packages\Microsoft.UI.Xaml.2.7.0\build\native\Microsoft.UI.Xaml.targets')" />
+    <Import Project="packages\Microsoft.UI.Xaml.2.8.7\build\native\Microsoft.UI.Xaml.targets" Condition="Exists('packages\Microsoft.UI.Xaml.2.8.7\build\native\Microsoft.UI.Xaml.targets')" />
+    <Import Project="packages\Microsoft.Web.WebView2.1.0.2849.39\build\native\Microsoft.Web.WebView2.targets" Condition="Exists('packages\Microsoft.Web.WebView2.1.0.2849.39\build\native\Microsoft.Web.WebView2.targets')" />
   </ImportGroup>
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
       <ErrorText>Questo progetto fa riferimento a uno o più pacchetti NuGet che non sono presenti in questo computer. Usare lo strumento di ripristino dei pacchetti NuGet per scaricarli. Per altre informazioni, vedere http://go.microsoft.com/fwlink/?LinkID=322105. Il file mancante è {0}.</ErrorText>
     </PropertyGroup>
-    <Error Condition="!Exists('packages\Microsoft.UI.Xaml.2.7.0\build\native\Microsoft.UI.Xaml.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Microsoft.UI.Xaml.2.7.0\build\native\Microsoft.UI.Xaml.targets'))" />
+    <Error Condition="!Exists('packages\Microsoft.UI.Xaml.2.8.7\build\native\Microsoft.UI.Xaml.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Microsoft.UI.Xaml.2.8.7\build\native\Microsoft.UI.Xaml.targets'))" />
+    <Error Condition="!Exists('packages\Microsoft.Web.WebView2.1.0.2849.39\build\native\Microsoft.Web.WebView2.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Microsoft.Web.WebView2.1.0.2849.39\build\native\Microsoft.Web.WebView2.targets'))" />
   </Target>
 </Project>

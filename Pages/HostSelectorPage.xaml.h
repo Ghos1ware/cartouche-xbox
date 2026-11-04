@@ -60,6 +60,9 @@ namespace moonlight_xbox_dx {
 		virtual void OnNavigatedFrom(Windows::UI::Xaml::Navigation::NavigationEventArgs^ e) override;
 
 	private:
+		// Opened from Cartouche (CartouchePage): B goes back there.
+		void OnBackRequested(Platform::Object^ sender, Windows::UI::Core::BackRequestedEventArgs^ args);
+		Windows::Foundation::EventRegistrationToken m_back_cookie;
 		ApplicationState^ state;
 		void NewHostButton_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 		void OnNewHostDialogPrimaryClick(Windows::UI::Xaml::Controls::ContentDialog^ sender, Windows::UI::Xaml::Controls::ContentDialogButtonClickEventArgs^ args);

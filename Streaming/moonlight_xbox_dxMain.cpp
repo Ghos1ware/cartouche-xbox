@@ -1,6 +1,7 @@
 ﻿#include "moonlight_xbox_dxMain.h"
 #include "pch.h"
 #include <Pages/AppPage.xaml.h>
+#include <Pages/CartouchePage.xaml.h>
 #include <Pages/HostSelectorPage.xaml.h>
 #include <Pages/StreamPage.xaml.h>
 #include <Streaming\FFMpegDecoder.h>
@@ -943,8 +944,9 @@ void moonlight_xbox_dxMain::ExitStreamPage() {
 		auto rootFrame = dynamic_cast<Windows::UI::Xaml::Controls::Frame ^>(Windows::UI::Xaml::Window::Current->Content);
 		if (!rootFrame) return;
 
+		// Cartouche started the stream from its own page: back there, like Moonlight's AppPage.
 		auto current = dynamic_cast<AppPage ^>(rootFrame->Content);
-		if (current != nullptr) {
+		if (current != nullptr || dynamic_cast<CartouchePage ^>(rootFrame->Content) != nullptr) {
 			reachedAppPage = true;
 		}
 
@@ -955,12 +957,12 @@ void moonlight_xbox_dxMain::ExitStreamPage() {
 		}
 
 		if (!reachedAppPage) {
-			if (dynamic_cast<AppPage ^>(rootFrame->Content) != nullptr) reachedAppPage = true;
+			if (dynamic_cast<AppPage ^>(rootFrame->Content) != nullptr || dynamic_cast<CartouchePage ^>(rootFrame->Content) != nullptr) reachedAppPage = true;
 		}
 
 		if (!reachedAppPage) {
 			try {
-				rootFrame->Navigate(Windows::UI::Xaml::Interop::TypeName(HostSelectorPage::typeid));
+				rootFrame->Navigate(Windows::UI::Xaml::Interop::TypeName(CartouchePage::typeid));
 			} catch (...) {
 				rootFrame->Content = nullptr;
 				Utils::Log("ExitStreamPage: Failed to return to HostSelectorPage\n");
