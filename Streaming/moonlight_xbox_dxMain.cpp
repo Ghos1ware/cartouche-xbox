@@ -34,79 +34,23 @@ moonlight_xbox_dxMain::moonlight_xbox_dxMain(const std::shared_ptr<DX::DeviceRes
       m_streamPage(streamPage),
       moonlightClient(client) {
 
-	Platform::String ^ appName = configuration->appName ? "'" + configuration->appName + "'" : "App";
-	DISPATCH_UI(([streamPage, appName]() {
-		streamPage->m_stepText->Text = "Starting " + appName;
+	DISPATCH_UI(([streamPage]() {
+		streamPage->SetLaunchStage(0);
 	}));
 
-	client->OnFailed = ([this, appName](int status, int error, char *message) {
+	client->OnFailed = ([this](int status, int error, char *message) {
 		std::string msgCopy = message ? message : std::string();
-		auto self = this;
 
-		DISPATCH_UI(([msgCopy, self, appName]() {
-			auto showErrorDialog = std::make_shared<std::function<void()>>();
-			auto showLogsDialog = std::make_shared<std::function<void()>>();
-
-			*showErrorDialog = [self, msgCopy, showLogsDialog, appName]() {
-				auto dialog1 = ref new Windows::UI::Xaml::Controls::ContentDialog();
-				dialog1->Title = L"Failed to start " + appName;
-				dialog1->Content = Utils::StringFromStdString(msgCopy);
-				dialog1->PrimaryButtonText = L"OK";
-				dialog1->SecondaryButtonText = L"Show Logs";
-
-				concurrency::create_task(::moonlight_xbox_dx::ModalDialog::ShowOnceAsync(dialog1)).then([self, showLogsDialog](concurrency::task<Windows::UI::Xaml::Controls::ContentDialogResult> t) {
-					auto result = t.get();
-					if (result == Windows::UI::Xaml::Controls::ContentDialogResult::Primary) {
-						self->StopRenderLoop();
-						self->ExitStreamPage();
-					} else if (result == Windows::UI::Xaml::Controls::ContentDialogResult::Secondary) {
-						(*showLogsDialog)();
-					}
-				});
-			};
-
-			*showLogsDialog = [self, showErrorDialog]() {
-				auto dialog2 = ref new Windows::UI::Xaml::Controls::ContentDialog();
-
-				std::wstring m_text = L"";
-				std::vector<std::wstring> lines = Utils::GetLogLines();
-
-				for (int i = 0; i < (int)lines.size(); i++) {
-					// Get only the last 8 lines
-					// More than that cannot be fully viewed on the screen at the current scaling
-					if ((int)lines.size() - i <= 8) {
-						m_text += lines[i];
-					}
-				}
-
-				Utils::showLogs = true;
-
-				dialog2->MaxWidth = 600;
-				dialog2->Title = "Logs";
-				dialog2->Content = ref new Platform::String(m_text.c_str());
-				dialog2->PrimaryButtonText = L"OK";
-				dialog2->SecondaryButtonText = L"Show Error";
-
-				concurrency::create_task(::moonlight_xbox_dx::ModalDialog::ShowOnceAsync(dialog2)).then([self, showErrorDialog](concurrency::task<Windows::UI::Xaml::Controls::ContentDialogResult> t) {
-					auto result = t.get();
-					if (result == Windows::UI::Xaml::Controls::ContentDialogResult::Primary) {
-						self->StopRenderLoop();
-						self->ExitStreamPage();
-					} else if (result == Windows::UI::Xaml::Controls::ContentDialogResult::Secondary) {
-						(*showErrorDialog)();
-					}
-				});
-			};
-
-			// Start by showing the error dialog
-			(*showErrorDialog)();
+		// Cartouche's launch screen says it, with a way back and the log (StreamPage).
+		auto page = m_streamPage;
+		DISPATCH_UI(([page, msgCopy]() {
+			page->ShowLaunchFailure(Utils::StringFromStdString(msgCopy));
 		}));
 	});
 
 	client->OnStatusUpdate = ([streamPage](int status) {
-		std::string msg = LiGetFormattedStageName(status);
-		DISPATCH_UI(([streamPage, msg]() {
-			streamPage->m_stepText->Text = Utils::StringFromStdString(msg);
+		DISPATCH_UI(([streamPage, status]() {
+			streamPage->SetLaunchStage(status);
 		}));
 	});
 
@@ -123,9 +67,7 @@ moonlight_xbox_dxMain::moonlight_xbox_dxMain(const std::shared_ptr<DX::DeviceRes
 		}).then([this, streamPage, configuration](concurrency::task<void> t) {
 			if (this->m_sceneRenderer && this->m_sceneRenderer->IsLoadingSuccessful()) {
 				DISPATCH_UI(([streamPage]() {
-					Sleep(500);
-					streamPage->m_progressRing->IsActive = false;
-					streamPage->m_progressView->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
+					streamPage->HideLaunch();
 				}));
 			}
 		});

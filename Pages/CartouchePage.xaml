@@ -63,7 +63,7 @@
             </Image>
 
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,236,0,0" Spacing="18">
-                <TextBlock x:Name="Word" Text="CARTOUCHE" Opacity="0" HorizontalAlignment="Center" FontFamily="Segoe UI" FontWeight="Bold" FontSize="22" CharacterSpacing="520" Foreground="#F3F0FF">
+                <TextBlock x:Name="Word" Text="CARTOUCHE" Opacity="0" HorizontalAlignment="Center" FontFamily="ms-appx:///Assets/Fonts/Unbounded.ttf#Unbounded" FontWeight="SemiBold" FontSize="21" CharacterSpacing="420" Foreground="#F3F0FF">
                     <TextBlock.RenderTransform>
                         <TranslateTransform x:Name="WordShift" />
                     </TextBlock.RenderTransform>

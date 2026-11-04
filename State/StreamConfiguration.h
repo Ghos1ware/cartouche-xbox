@@ -7,6 +7,9 @@ namespace moonlight_xbox_dx
 		property Platform::String^ hostname;
 		property int appID;
 	    property Platform::String^ appName;
+		// Cartouche's launch screen: the game's cover (ms-appdata:///…) and the PC's name.
+		property Platform::String^ coverUri;
+		property Platform::String^ computerName;
 		property int width;
 		property int height;
 		property int bitrate;

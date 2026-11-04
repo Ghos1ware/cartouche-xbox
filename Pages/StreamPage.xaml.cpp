@@ -5,6 +5,7 @@
 
 #include "pch.h"
 #include "StreamPage.xaml.h"
+#include <cwctype>
 #include "../Plot/ImGuiPlots.h"
 #include "../Streaming/AudioPlayer.h"
 #include "../Streaming/FrameQueue.h"
@@ -68,7 +69,7 @@ void StreamPage::OnBackRequested(Platform::Object^ e,Windows::UI::Core::BackRequ
 void StreamPage::Page_Loaded(Platform::Object ^ sender, Windows::UI::Xaml::RoutedEventArgs ^ e) {
 
 	this->m_progressView->Visibility = Windows::UI::Xaml::Visibility::Visible;
-	this->m_progressRing->IsActive = true;
+	PrepareLaunch();
 
 	if (Utils::ShowDevTools()) {
 		toggleCapture->Visibility = Windows::UI::Xaml::Visibility::Visible;
@@ -304,7 +305,9 @@ void StreamPage::disconnectAndCloseButton_Click(Platform::Object ^ sender, Windo
 
 	auto that = this;
 
-	auto progressToken = ::moonlight_xbox_dx::ModalDialog::ShowProgressDialogToken(nullptr, Utils::StringFromStdString("Closing..."));
+	// Cartouche's screen says it, while the PC closes the game.
+	ShowClosing();
+	int progressToken = 0;
 
 	concurrency::create_task(concurrency::create_async([that, progressToken]() {
 		try {
@@ -320,9 +323,7 @@ void StreamPage::disconnectAndCloseButton_Click(Platform::Object ^ sender, Windo
 			// UI is sent back to HostSelectorPage in StartRenderLoop(), after the loop exits
 			// All we need to do is close the progress dialog
 
-			DISPATCH_UI([progressToken] {
-				::moonlight_xbox_dx::ModalDialog::HideDialogByToken(progressToken);
-			});
+			(void)progressToken;
 		} catch (...) {
 		}
 	});
@@ -492,4 +493,121 @@ void StreamPage::OnHdmiDisplayModesChanged(HdmiDisplayInformation^, Platform::Ob
 
 bool StreamPage::ShouldRefreshDisplay() {
 	return m_refreshDisplay.exchange(false);
+}
+
+// ---- Cartouche's launch screen ----
+
+void StreamPage::PrepareLaunch() {
+	launchFailed = false;
+	auto name = configuration != nullptr && configuration->appName != nullptr ? configuration->appName : L"Cartouche";
+	GameTitle->Text = name;
+	auto pc = configuration != nullptr && configuration->computerName != nullptr && !configuration->computerName->IsEmpty() ? configuration->computerName : L"ton PC";
+	std::wstring kicker = L"LANCEMENT SUR " + std::wstring(pc->Data());
+	std::transform(kicker.begin(), kicker.end(), kicker.begin(), ::towupper);
+	Kicker->Text = ref new Platform::String(kicker.c_str());
+	Kicker->Foreground = ref new Windows::UI::Xaml::Media::SolidColorBrush(Windows::UI::ColorHelper::FromArgb(255, 0xF2, 0xC1, 0x4E));
+	StatusText->Text = pc + L" lance " + name + L"\u2026";
+	StepText->Text = L"";
+	FailActions->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
+	FailLog->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
+	LaunchHint->Visibility = Windows::UI::Xaml::Visibility::Visible;
+	// The cover the app keeps for the game (CartouchePage); without one, Cartouche's cartridge.
+	auto cover = configuration != nullptr && configuration->coverUri != nullptr && !configuration->coverUri->IsEmpty()
+		? configuration->coverUri : L"ms-appx:///Assets/Square150x150Logo.scale-400.png";
+	auto image = ref new Windows::UI::Xaml::Media::Imaging::BitmapImage(ref new Windows::Foundation::Uri(cover));
+	Cover->Source = image;
+	Backdrop->Source = image;
+	ProgressView->Opacity = 1;
+	BarScale->ScaleX = 0.04;
+	MoveBar(0.1);
+	LaunchIn->Begin();
+	LaunchRun->Begin();
+}
+
+void StreamPage::MoveBar(double to) {
+	auto story = ref new Windows::UI::Xaml::Media::Animation::Storyboard();
+	auto grow = ref new Windows::UI::Xaml::Media::Animation::DoubleAnimation();
+	grow->To = to;
+	Windows::Foundation::TimeSpan span;
+	span.Duration = 6000000;
+	grow->Duration = Windows::UI::Xaml::Duration(span);
+	auto ease = ref new Windows::UI::Xaml::Media::Animation::CubicEase();
+	ease->EasingMode = Windows::UI::Xaml::Media::Animation::EasingMode::EaseOut;
+	grow->EasingFunction = ease;
+	Windows::UI::Xaml::Media::Animation::Storyboard::SetTarget(grow, BarScale);
+	Windows::UI::Xaml::Media::Animation::Storyboard::SetTargetProperty(grow, L"ScaleX");
+	story->Children->Append(grow);
+	story->Begin();
+}
+
+void StreamPage::SetLaunchStage(int stage) {
+	if (launchFailed) return;
+	// Moonlight's stages (Limelight.h), in the player's words.
+	const wchar_t* line = L"Connexion au PC\u2026";
+	if (stage >= STAGE_VIDEO_STREAM_START) line = L"R\u00e9ception de l'image et du son\u2026";
+	else if (stage >= STAGE_CONTROL_STREAM_INIT) line = L"Ouverture du flux\u2026";
+	else if (stage >= STAGE_AUDIO_STREAM_INIT) line = L"Le PC pr\u00e9pare le jeu\u2026";
+	if (stage > 0) StatusText->Text = ref new Platform::String(line);
+	MoveBar(0.12 + 0.8 * std::min(stage, STAGE_MAX) / (double)STAGE_MAX);
+}
+
+void StreamPage::HideLaunch() {
+	if (launchFailed) return;
+	StatusText->Text = L"C'est parti !";
+	MoveBar(1.0);
+	auto that = this;
+	LaunchOut->Completed += ref new Windows::Foundation::EventHandler<Platform::Object^>([that](Platform::Object^, Platform::Object^) {
+		that->ProgressView->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
+		that->LaunchRun->Stop();
+	});
+	LaunchOut->Begin();
+}
+
+void StreamPage::ShowLaunchFailure(Platform::String^ message) {
+	launchFailed = true;
+	LaunchOut->Stop();
+	ProgressView->Opacity = 1;
+	ProgressView->Visibility = Windows::UI::Xaml::Visibility::Visible;
+	LaunchRun->Stop();
+	Kicker->Text = L"LE STREAM N'A PAS D\u00c9MARR\u00c9";
+	Kicker->Foreground = ref new Windows::UI::Xaml::Media::SolidColorBrush(Windows::UI::ColorHelper::FromArgb(255, 0xFF, 0x8A, 0x9B));
+	StatusText->Text = L"Le PC n'a pas pu lancer le jeu, ou la connexion s'est coup\u00e9e. V\u00e9rifie que Cartouche est ouvert sur le PC.";
+	StepText->Text = message;
+	BarFrom->Color = Windows::UI::ColorHelper::FromArgb(255, 0xFF, 0x6B, 0x81);
+	BarTo->Color = Windows::UI::ColorHelper::FromArgb(255, 0xFF, 0x8A, 0x9B);
+	LaunchHint->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
+	FailActions->Visibility = Windows::UI::Xaml::Visibility::Visible;
+	FailBack->Focus(Windows::UI::Xaml::FocusState::Programmatic);
+}
+
+void StreamPage::ShowClosing() {
+	LaunchOut->Stop();
+	ProgressView->Opacity = 1;
+	ProgressView->Visibility = Windows::UI::Xaml::Visibility::Visible;
+	Kicker->Text = L"FERMETURE";
+	auto name = configuration != nullptr && configuration->appName != nullptr ? configuration->appName : L"le jeu";
+	StatusText->Text = L"On ferme " + name + L" sur le PC\u2026";
+	StepText->Text = L"";
+	LaunchHint->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
+	BarScale->ScaleX = 0.3;
+	LaunchRun->Begin();
+}
+
+void StreamPage::FailBack_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e) {
+	if (m_main) {
+		m_main->StopRenderLoop();
+		m_main->ExitStreamPage();
+	}
+}
+
+void StreamPage::FailLogs_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e) {
+	if (FailLog->Visibility == Windows::UI::Xaml::Visibility::Visible) {
+		FailLog->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
+		return;
+	}
+	std::wstring text;
+	auto lines = Utils::GetLogLines();
+	for (size_t i = lines.size() > 12 ? lines.size() - 12 : 0; i < lines.size(); i++) text += lines[i];
+	FailLog->Text = ref new Platform::String(text.c_str());
+	FailLog->Visibility = Windows::UI::Xaml::Visibility::Visible;
 }

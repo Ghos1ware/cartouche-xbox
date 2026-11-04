@@ -394,6 +394,12 @@
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <None Include="Assets\Fonts\Unbounded.ttf">
+      <DeploymentContent>true</DeploymentContent>
+    </None>
+    <None Include="Assets\Fonts\Onest.ttf">
+      <DeploymentContent>true</DeploymentContent>
+    </None>
     <Image Include="Assets\LargeTile.scale-100.png" />
     <Image Include="Assets\LargeTile.scale-125.png" />
     <Image Include="Assets\LargeTile.scale-150.png" />

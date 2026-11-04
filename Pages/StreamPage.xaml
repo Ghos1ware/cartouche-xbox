@@ -6,13 +6,78 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    xmlns:media="using:Microsoft.UI.Xaml.Media"
     mc:Ignorable="d"
-    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+    Background="#07060D"
     Loaded="Page_Loaded"
     Unloaded="Page_Unloaded">
 
     <Page.Resources>
         <local:BoolToTextConverter x:Key="BoolToTextConverter" TrueText="On" FalseText="Off" />
+        <CubicEase x:Key="Out" EasingMode="EaseOut" />
+
+        <!-- Cartouche's buttons: a white pill for the main one, glass for the other. -->
+        <Style x:Key="CartoucheButton" TargetType="Button">
+            <Setter Property="FontFamily" Value="ms-appx:///Assets/Fonts/Onest.ttf#Onest" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="FontSize" Value="17" />
+            <Setter Property="Padding" Value="30,13" />
+            <Setter Property="CornerRadius" Value="26" />
+            <Setter Property="Background" Value="#24FFFFFF" />
+            <Setter Property="Foreground" Value="#F3F0FF" />
+            <Setter Property="BorderBrush" Value="#33FFFFFF" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FocusVisualPrimaryBrush" Value="#F3F0FF" />
+            <Setter Property="FocusVisualPrimaryThickness" Value="3" />
+            <Setter Property="FocusVisualSecondaryThickness" Value="0" />
+            <Setter Property="FocusVisualMargin" Value="-5" />
+        </Style>
+        <Style x:Key="CartouchePrimary" TargetType="Button" BasedOn="{StaticResource CartoucheButton}">
+            <Setter Property="Background" Value="#F3F0FF" />
+            <Setter Property="Foreground" Value="#0C0A16" />
+            <Setter Property="BorderBrush" Value="#F3F0FF" />
+        </Style>
+
+        <!-- The in-game menu (View + Menu): Cartouche's dark glass, its type, its violet. -->
+        <Style TargetType="MenuFlyoutPresenter">
+            <Setter Property="Background" Value="#F0141128" />
+            <Setter Property="BorderBrush" Value="#40B794FF" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="18" />
+            <Setter Property="Padding" Value="8,10" />
+            <Setter Property="MinWidth" Value="340" />
+        </Style>
+        <Style TargetType="MenuFlyoutItem">
+            <Setter Property="FontFamily" Value="ms-appx:///Assets/Fonts/Onest.ttf#Onest" />
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="Foreground" Value="#F3F0FF" />
+            <Setter Property="Padding" Value="14,11" />
+            <Setter Property="CornerRadius" Value="10" />
+        </Style>
+        <Style TargetType="MenuFlyoutSubItem">
+            <Setter Property="FontFamily" Value="ms-appx:///Assets/Fonts/Onest.ttf#Onest" />
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="Foreground" Value="#F3F0FF" />
+            <Setter Property="Padding" Value="14,11" />
+            <Setter Property="CornerRadius" Value="10" />
+        </Style>
+
+        <!-- The launch: the cover slides in, the title rises, a light runs along the bar. -->
+        <Storyboard x:Name="LaunchIn">
+            <DoubleAnimation Storyboard.TargetName="Backdrop" Storyboard.TargetProperty="Opacity" From="0" To="0.34" Duration="0:0:1.2" EasingFunction="{StaticResource Out}" />
+            <DoubleAnimation Storyboard.TargetName="CoverCard" Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.7" EasingFunction="{StaticResource Out}" />
+            <DoubleAnimation Storyboard.TargetName="CoverShift" Storyboard.TargetProperty="X" From="-40" To="0" Duration="0:0:0.8" EasingFunction="{StaticResource Out}" />
+            <DoubleAnimation Storyboard.TargetName="Info" Storyboard.TargetProperty="Opacity" From="0" To="1" BeginTime="0:0:0.2" Duration="0:0:0.7" EasingFunction="{StaticResource Out}" />
+            <DoubleAnimation Storyboard.TargetName="InfoShift" Storyboard.TargetProperty="Y" From="16" To="0" BeginTime="0:0:0.2" Duration="0:0:0.7" EasingFunction="{StaticResource Out}" />
+        </Storyboard>
+        <Storyboard x:Name="LaunchRun" RepeatBehavior="Forever">
+            <DoubleAnimation Storyboard.TargetName="RunShift" Storyboard.TargetProperty="X" From="-120" To="420" Duration="0:0:1.4" />
+            <DoubleAnimation Storyboard.TargetName="GlowScale" Storyboard.TargetProperty="ScaleX" From="1" To="1.1" AutoReverse="True" Duration="0:0:1.8" EasingFunction="{StaticResource Out}" />
+            <DoubleAnimation Storyboard.TargetName="GlowScale" Storyboard.TargetProperty="ScaleY" From="1" To="1.1" AutoReverse="True" Duration="0:0:1.8" EasingFunction="{StaticResource Out}" />
+        </Storyboard>
+        <Storyboard x:Name="LaunchOut">
+            <DoubleAnimation Storyboard.TargetName="ProgressView" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.45" EasingFunction="{StaticResource Out}" />
+        </Storyboard>
     </Page.Resources>
 
     <Grid>
@@ -26,57 +91,57 @@
             <Button Click="flyoutButton_Click" IsTabStop="False" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,20,20" x:Name="flyoutButton" AllowFocusOnInteraction="false" Grid.Column="1" Opacity="0">
                 <FlyoutBase.AttachedFlyout>
                     <MenuFlyout x:Name="ActionsFlyout" Closed="ActionsFlyout_Closed" AllowFocusOnInteraction="false" Placement="TopEdgeAlignedRight">
-                        <MenuFlyoutItem x:Name="toggleMouseButton" Text="{x:Bind MouseMode, Mode=OneWay, Converter={StaticResource BoolToTextConverter}, ConverterParameter='Exit Mouse Mode|Enter Mouse Mode'}" Click="toggleMouseButton_Click" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" >
+                        <MenuFlyoutItem x:Name="toggleMouseButton" Text="{x:Bind MouseMode, Mode=OneWay, Converter={StaticResource BoolToTextConverter}, ConverterParameter='Quitter le mode souris|Mode souris'}" Click="toggleMouseButton_Click" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" >
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE962;" />
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
-                        <MenuFlyoutItem x:Name="showKeyboardButton" Text="Show Keyboard" Click="showKeyboardButton_Click" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" >
+                        <MenuFlyoutItem x:Name="showKeyboardButton" Text="Clavier" Click="showKeyboardButton_Click" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" >
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE92E;" />
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
-                        <MenuFlyoutSubItem Text="Other Actions">
-                            <MenuFlyoutItem x:Name="guideButtonShort" Text="Guide Button (short)" Click="guideButtonShort_Click" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" >
+                        <MenuFlyoutSubItem Text="Autres actions">
+                            <MenuFlyoutItem x:Name="guideButtonShort" Text="Bouton Xbox (appui court)" Click="guideButtonShort_Click" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" >
                                 <MenuFlyoutItem.Icon>
                                     <FontIcon Glyph="&#xe80f;" />
                                 </MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
-                            <MenuFlyoutItem x:Name="guideButtonLong" Text="Guide Button (long)" Click="guideButtonLong_Click" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" >
+                            <MenuFlyoutItem x:Name="guideButtonLong" Text="Bouton Xbox (appui long)" Click="guideButtonLong_Click" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" >
                                 <MenuFlyoutItem.Icon>
                                     <FontIcon Glyph="&#xe80f;" />
                                 </MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
-                            <MenuFlyoutItem x:Name="toggleHDR_WinAltB" Text="Toggle HDR (Win-Alt-B)" Click="toggleHDR_WinAltB_Click" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" >
+                            <MenuFlyoutItem x:Name="toggleHDR_WinAltB" Text="HDR du PC (Win+Alt+B)" Click="toggleHDR_WinAltB_Click" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" >
                                 <MenuFlyoutItem.Icon>
                                     <FontIcon Glyph="&#xe706;" />
                                 </MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
-                            <MenuFlyoutItem x:Name="resetDecoder" Text="Reset Decoder" Click="resetDecoder_Click" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" >
+                            <MenuFlyoutItem x:Name="resetDecoder" Text="Relancer le décodeur" Click="resetDecoder_Click" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" >
                                 <MenuFlyoutItem.Icon>
                                     <FontIcon Glyph="&#xE72C;" />
                                 </MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
-                            <MenuFlyoutItem x:Name="toggleFramePacing" Text="Switch frame pacing mode" Click="toggleFramePacing_Click" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" >
+                            <MenuFlyoutItem x:Name="toggleFramePacing" Text="Changer le rythme des images" Click="toggleFramePacing_Click" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" >
                                 <MenuFlyoutItem.Icon>
                                     <FontIcon Glyph="&#xE8B9;" />
                                 </MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
                         </MenuFlyoutSubItem>
                         <MenuFlyoutSeparator></MenuFlyoutSeparator>
-                        <MenuFlyoutItem x:Name="toggleStatsButton" Text="{x:Bind ShowStats, Mode=OneWay, Converter={StaticResource BoolToTextConverter}, ConverterParameter='Hide Stats|Show Stats'}" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" Click="toggleStatsButton_Click">
+                        <MenuFlyoutItem x:Name="toggleStatsButton" Text="{x:Bind ShowStats, Mode=OneWay, Converter={StaticResource BoolToTextConverter}, ConverterParameter='Masquer les statistiques|Statistiques'}" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" Click="toggleStatsButton_Click">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xEC48;" />
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
-                        <MenuFlyoutItem x:Name="toggleLogsButton" Text="{x:Bind ShowLogs, Mode=OneWay, Converter={StaticResource BoolToTextConverter}, ConverterParameter='Hide Logs|Show Logs'}" AllowFocusOnInteraction="false" Click="toggleLogsButton_Click"  FocusVisualSecondaryThickness="0.5" >
+                        <MenuFlyoutItem x:Name="toggleLogsButton" Text="{x:Bind ShowLogs, Mode=OneWay, Converter={StaticResource BoolToTextConverter}, ConverterParameter='Masquer le journal|Journal'}" AllowFocusOnInteraction="false" Click="toggleLogsButton_Click"  FocusVisualSecondaryThickness="0.5" >
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xF0B5;" />
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
                         <MenuFlyoutSeparator></MenuFlyoutSeparator>
 
-                        <MenuFlyoutSubItem Text="Audio">
+                        <MenuFlyoutSubItem Text="Son">
                             <MenuFlyoutSubItem.Icon>
                                 <FontIcon Glyph="&#xF61F;" />
                             </MenuFlyoutSubItem.Icon>
@@ -89,7 +154,7 @@
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
-                                                <TextBlock Text="Audio buffer" VerticalAlignment="Center" />
+                                                <TextBlock Text="Tampon audio" VerticalAlignment="Center" />
                                                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                                                     <TextBlock Text="{Binding Value, ElementName=audioBufferSlider}" />
                                                     <TextBlock Text=" ms" />
@@ -112,7 +177,7 @@
                                                 <TextBlock Grid.Column="3" Text="40ms" HorizontalAlignment="Center" />
                                                 <TextBlock Grid.Column="4" Text="50ms" HorizontalAlignment="Right" />
                                             </Grid>
-                                            <TextBlock FontSize="12px" Text="Small buffer sizes are more likely to have audio glitches." VerticalAlignment="Center" />
+                                            <TextBlock FontSize="12px" Text="Plus il est petit, plus le son risque de grésiller." VerticalAlignment="Center" />
                                             <TextBlock x:Name="audioGlitchText" FontSize="12px" VerticalAlignment="Center" Loaded="audioGlitchText_Loaded" Text="Glitches: 0 / Drops to reduce latency: 0" />
                                         </StackPanel>
                                     </ControlTemplate>
@@ -127,12 +192,12 @@
                         </MenuFlyoutItem>
 
                         <MenuFlyoutSeparator></MenuFlyoutSeparator>
-                        <MenuFlyoutItem x:Name="disonnectButton" Text="Disconnect" Click="disonnectButton_Click" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" >
+                        <MenuFlyoutItem x:Name="disonnectButton" Text="Revenir à Cartouche (le jeu continue)" Click="disonnectButton_Click" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" >
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE72D;" />
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
-                        <MenuFlyoutItem x:Name="disconnectAndCloseButton" Text="Disconnect and Close" Click="disconnectAndCloseButton_Click" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" >
+                        <MenuFlyoutItem x:Name="disconnectAndCloseButton" Text="Quitter le jeu" Click="disconnectAndCloseButton_Click" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" >
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE71A;" />
                             </MenuFlyoutItem.Icon>
@@ -141,12 +206,96 @@
                 </FlyoutBase.AttachedFlyout>
             </Button>
         </SwapChainPanel>
-        <Grid x:Name="ProgressView" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" VerticalAlignment="Stretch" HorizontalAlignment="Stretch">
-            <StackPanel x:Name="ProgressStack" HorizontalAlignment="Center" VerticalAlignment="Center"  Orientation="Vertical">
-                <muxc:ProgressRing x:Name="MainProgressRing" Width="64" Height="64" IsActive="True" Margin="0,0,0,16" />
-                <TextBlock x:Name="StatusText" TextAlignment="Center" Text="Initializing Moonlight..."/>
-                <TextBlock x:Name="StepText" FontSize="12px" Foreground="DimGray" TextAlignment="Center" Text="" Margin="0,16,0,0" />
-            </StackPanel>
+        <!-- Launching a game, in Cartouche's look: its cover, its name, the PC, the stages. -->
+        <Grid x:Name="ProgressView" Background="#07060D">
+            <Image x:Name="Backdrop" Stretch="UniformToFill" Opacity="0" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            <Rectangle>
+                <Rectangle.Fill>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                        <GradientStop Color="#F507060D" Offset="0" />
+                        <GradientStop Color="#C407060D" Offset="0.5" />
+                        <GradientStop Color="#7007060D" Offset="1" />
+                    </LinearGradientBrush>
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle>
+                <Rectangle.Fill>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#0007060D" Offset="0.45" />
+                        <GradientStop Color="#FF07060D" Offset="1" />
+                    </LinearGradientBrush>
+                </Rectangle.Fill>
+            </Rectangle>
+            <Ellipse Width="980" Height="980" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="-260,0,0,0" RenderTransformOrigin="0.5,0.5">
+                <Ellipse.RenderTransform>
+                    <ScaleTransform x:Name="GlowScale" />
+                </Ellipse.RenderTransform>
+                <Ellipse.Fill>
+                    <media:RadialGradientBrush>
+                        <GradientStop Color="#594C1D95" Offset="0" />
+                        <GradientStop Color="#263B0A8C" Offset="0.5" />
+                        <GradientStop Color="#0007060D" Offset="1" />
+                    </media:RadialGradientBrush>
+                </Ellipse.Fill>
+            </Ellipse>
+
+            <Grid HorizontalAlignment="Center" VerticalAlignment="Center" ColumnSpacing="54" Margin="96,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border x:Name="CoverCard" Width="244" Height="345" CornerRadius="20" Opacity="0" Background="#1A1530" BorderBrush="#40FFFFFF" BorderThickness="1">
+                    <Border.RenderTransform>
+                        <TranslateTransform x:Name="CoverShift" />
+                    </Border.RenderTransform>
+                    <Image x:Name="Cover" Stretch="UniformToFill" />
+                </Border>
+                <StackPanel x:Name="Info" Grid.Column="1" VerticalAlignment="Center" Spacing="16" MaxWidth="600" Opacity="0">
+                    <StackPanel.RenderTransform>
+                        <TranslateTransform x:Name="InfoShift" />
+                    </StackPanel.RenderTransform>
+                    <TextBlock x:Name="Kicker" Text="LANCEMENT" FontFamily="ms-appx:///Assets/Fonts/Onest.ttf#Onest" FontWeight="Bold" FontSize="14" CharacterSpacing="240" Foreground="#F2C14E" />
+                    <TextBlock x:Name="GameTitle" FontFamily="ms-appx:///Assets/Fonts/Unbounded.ttf#Unbounded" FontWeight="SemiBold" FontSize="42" LineHeight="50" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" Foreground="#F3F0FF" />
+                    <TextBlock x:Name="StatusText" Text="" FontFamily="ms-appx:///Assets/Fonts/Onest.ttf#Onest" FontSize="19" Foreground="#C9C2E6" TextWrapping="Wrap" />
+                    <Grid x:Name="Bar" Width="400" Height="4" CornerRadius="2" HorizontalAlignment="Left" Background="#1FFFFFFF" Margin="0,6,0,0">
+                        <Grid.Clip>
+                            <RectangleGeometry Rect="0,0,400,4" />
+                        </Grid.Clip>
+                        <Rectangle x:Name="BarFill" RadiusX="2" RadiusY="2" RenderTransformOrigin="0,0.5">
+                            <Rectangle.RenderTransform>
+                                <ScaleTransform x:Name="BarScale" ScaleX="0.04" />
+                            </Rectangle.RenderTransform>
+                            <Rectangle.Fill>
+                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                    <GradientStop x:Name="BarFrom" Color="#FFB794FF" Offset="0" />
+                                    <GradientStop x:Name="BarTo" Color="#FFF2C14E" Offset="1" />
+                                </LinearGradientBrush>
+                            </Rectangle.Fill>
+                        </Rectangle>
+                        <Rectangle Width="120" Height="4" HorizontalAlignment="Left">
+                            <Rectangle.RenderTransform>
+                                <TranslateTransform x:Name="RunShift" X="-120" />
+                            </Rectangle.RenderTransform>
+                            <Rectangle.Fill>
+                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                    <GradientStop Color="#00FFFFFF" Offset="0" />
+                                    <GradientStop Color="#99FFFFFF" Offset="0.6" />
+                                    <GradientStop Color="#00FFFFFF" Offset="1" />
+                                </LinearGradientBrush>
+                            </Rectangle.Fill>
+                        </Rectangle>
+                    </Grid>
+                    <TextBlock x:Name="StepText" Text="" FontFamily="ms-appx:///Assets/Fonts/Onest.ttf#Onest" FontSize="13" Foreground="#7F78A0" TextWrapping="Wrap" />
+                    <StackPanel x:Name="FailActions" Orientation="Horizontal" Spacing="14" Margin="0,10,0,0" Visibility="Collapsed">
+                        <Button x:Name="FailBack" Content="Revenir à Cartouche" Style="{StaticResource CartouchePrimary}" Click="FailBack_Click" />
+                        <Button x:Name="FailLogs" Content="Voir le journal" Style="{StaticResource CartoucheButton}" Click="FailLogs_Click" />
+                    </StackPanel>
+                    <TextBlock x:Name="FailLog" Visibility="Collapsed" FontFamily="Consolas" FontSize="12" Foreground="#9A93BD" TextWrapping="Wrap" MaxHeight="220" />
+                </StackPanel>
+            </Grid>
+
+            <TextBlock x:Name="LaunchHint" Text="En jeu, Vue + Menu ouvre le menu du stream" FontFamily="ms-appx:///Assets/Fonts/Onest.ttf#Onest" FontSize="14" Foreground="#7F78A0" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,64,40" />
+            <muxc:ProgressRing x:Name="MainProgressRing" Visibility="Collapsed" IsActive="False" />
         </Grid>
     </Grid>
 

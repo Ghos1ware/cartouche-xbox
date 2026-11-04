@@ -29,6 +29,7 @@ extern "C" {
 #include <libgamestream/http.h>
 }
 
+#include <cmath>
 #include <cwctype>
 #include <fstream>
 #include <regex>
@@ -155,6 +156,114 @@ namespace {
 		std::string value = Utils::PlatformStringToStdString(id);
 		if (!std::regex_match(value, std::regex("[a-z0-9-]+"))) throw std::invalid_argument("Not a game id: " + value);
 		return value;
+	}
+
+	// ---- The stream's settings (Cartouche's screen, ui/PhoneStream.tsx) over Moonlight UWP's ----
+
+	// The PC they apply to: the paired one, else the first.
+	MoonlightHost^ SettingsHost(ApplicationState^ state) {
+		for (auto host : state->SavedHosts) {
+			if (host->Paired) return host;
+		}
+		if (state->SavedHosts->Size > 0) return state->SavedHosts->GetAt(0);
+		throw std::runtime_error("Aucun PC");
+	}
+
+	// Moonlight's default bitrate (the Shield's table, by resolution, then frame rate), in kb/s.
+	int AutoBitrate(int width, int height, int fps) {
+		const int pixels[] = { 1280 * 720, 1920 * 1080, 2560 * 1440, 3840 * 2160 };
+		const float factors[] = { 5.0f, 10.0f, 20.0f, 40.0f };
+		int count = width * height;
+		float resolution = factors[3];
+		if (count <= pixels[0]) resolution = factors[0];
+		else {
+			for (int i = 1; i < 4; i++) {
+				if (count <= pixels[i]) {
+					resolution = factors[i - 1] + (float)(count - pixels[i - 1]) / (pixels[i] - pixels[i - 1]) * (factors[i] - factors[i - 1]);
+					break;
+				}
+			}
+		}
+		float rate = (fps <= 60 ? fps : std::sqrt(fps / 60.0f) * 60.0f) / 30.0f;
+		return (int)std::lround(resolution * rate) * 1000;
+	}
+
+	// Whether the bitrate follows the resolution and the frame rate (« Auto »), per PC.
+	String^ AutoKey(MoonlightHost^ host) { return L"autoBitrate-" + Uuid(host); }
+	bool AutoBitrateOn(MoonlightHost^ host) {
+		auto values = Windows::Storage::ApplicationData::Current->LocalSettings->Values;
+		return !values->HasKey(AutoKey(host)) || safe_cast<bool>(values->Lookup(AutoKey(host)));
+	}
+
+	JsonObject^ StreamSettings(MoonlightHost^ host) {
+		// The TV's own mode, from the HDMI output: its size and its fastest rate there.
+		int screenWidth = 1920, screenHeight = 1080;
+		double refresh = 60;
+		try {
+			auto hdmi = Windows::Graphics::Display::Core::HdmiDisplayInformation::GetForCurrentView();
+			if (hdmi != nullptr) {
+				auto current = hdmi->GetCurrentDisplayMode();
+				if (current != nullptr) {
+					screenWidth = current->ResolutionWidthInRawPixels;
+					screenHeight = current->ResolutionHeightInRawPixels;
+				}
+				for (auto mode : hdmi->GetSupportedDisplayModes()) {
+					if (mode->ResolutionWidthInRawPixels == (unsigned)screenWidth && mode->ResolutionHeightInRawPixels == (unsigned)screenHeight) refresh = std::max(refresh, mode->RefreshRate);
+				}
+			}
+		}
+		catch (...) {
+		}
+		auto text = [](String^ value) { return JsonValue::CreateStringValue(value); };
+		auto flag = [](bool on) { return JsonValue::CreateStringValue(on ? L"true" : L"false"); };
+		auto number = [](int value) { return JsonValue::CreateStringValue(ref new String(std::to_wstring(value).c_str())); };
+		auto values = ref new JsonObject();
+		auto width = host->Resolution != nullptr ? host->Resolution->Width : 1920;
+		auto height = host->Resolution != nullptr ? host->Resolution->Height : 1080;
+		values->Insert(L"list_resolution", text(ref new String((std::to_wstring(width) + L"x" + std::to_wstring(height)).c_str())));
+		values->Insert(L"list_fps", number(host->FPS));
+		values->Insert(L"seekbar_bitrate_kbps", AutoBitrateOn(host) ? text(L"auto") : number(host->Bitrate));
+		values->Insert(L"video_format", text(host->VideoCodec == L"H.264" ? L"neverh265" : L"forceh265"));
+		values->Insert(L"frame_pacing", text(host->FramePacing == L"Display-locked" ? L"smoothness" : L"latency"));
+		values->Insert(L"checkbox_enable_hdr", flag(host->EnableHDR));
+		values->Insert(L"checkbox_enable_perf_overlay", flag(host->EnableStats));
+		values->Insert(L"list_audio_config", text(host->AudioConfig == L"Surround 7.1" ? L"71" : host->AudioConfig == L"Surround 5.1" ? L"51" : L"2"));
+		values->Insert(L"checkbox_host_audio", flag(host->PlayAudioOnPC));
+		values->Insert(L"checkbox_enable_sops", flag(host->EnableSOPS));
+		auto settings = ref new JsonObject();
+		settings->Insert(L"values", values);
+		settings->Insert(L"screen", text(ref new String((std::to_wstring(screenWidth) + L"x" + std::to_wstring(screenHeight)).c_str())));
+		settings->Insert(L"refreshRate", JsonValue::CreateNumberValue(std::round(refresh)));
+		settings->Insert(L"autoBitrate", JsonValue::CreateNumberValue(AutoBitrate(width, height, host->FPS)));
+		return settings;
+	}
+
+	void ApplyStreamSetting(MoonlightHost^ host, const std::wstring& key, String^ value) {
+		std::wstring v(value->Data());
+		bool on = v == L"true";
+		if (key == L"list_resolution") {
+			auto x = v.find(L'x');
+			if (x == std::wstring::npos) throw std::invalid_argument("Bad resolution");
+			host->Resolution = ref new ScreenResolution(std::stoi(v.substr(0, x)), std::stoi(v.substr(x + 1)));
+		}
+		else if (key == L"list_fps") host->FPS = std::stoi(v);
+		else if (key == L"seekbar_bitrate_kbps") {
+			Windows::Storage::ApplicationData::Current->LocalSettings->Values->Insert(AutoKey(host), v == L"auto");
+			if (v != L"auto") host->Bitrate = std::stoi(v);
+		}
+		else if (key == L"video_format") host->VideoCodec = v == L"neverh265" ? L"H.264" : L"HEVC (H.265)";
+		else if (key == L"frame_pacing") host->FramePacing = v == L"smoothness" ? L"Display-locked" : L"Immediate";
+		else if (key == L"checkbox_enable_hdr") {
+			host->EnableHDR = on;
+			// H.264 has no HDR here: HEVC carries it.
+			if (on && host->VideoCodec == L"H.264") host->VideoCodec = L"HEVC (H.265)";
+		}
+		else if (key == L"checkbox_enable_perf_overlay") host->EnableStats = on;
+		else if (key == L"list_audio_config") host->AudioConfig = v == L"71" ? L"Surround 7.1" : v == L"51" ? L"Surround 5.1" : L"Stereo";
+		else if (key == L"checkbox_host_audio") host->PlayAudioOnPC = on;
+		else if (key == L"checkbox_enable_sops") host->EnableSOPS = on;
+		else throw std::invalid_argument("Unknown setting");
+		if (AutoBitrateOn(host) && host->Resolution != nullptr) host->Bitrate = AutoBitrate(host->Resolution->Width, host->Resolution->Height, host->FPS);
 	}
 
 	// libgamestream for one PC, outside Moonlight's own pages.
@@ -332,11 +441,12 @@ void CartouchePage::Start() {
 	}, task_continuation_context::use_current());
 }
 
-// Drawn: the app is mounted (main.tsx adds has-app) and the images on screen have arrived, so
-// the interface appears whole, not tile by tile; 2 s after mounting at most (a screen without
+// Drawn: the interface is up (main.tsx adds has-app, then its top bar once the catalog is in)
+// and the images on screen have arrived, so it appears whole, not tile by tile; 2 s after that at most (a screen without
 // images, lazy covers the WebView does not load while it is covered).
 static const wchar_t* READY = LR"JS((() => {
-  if (!document.documentElement.classList.contains("has-app")) return false;
+  // The interface itself (its top bar), not its boot cartridge while the catalog loads.
+  if (!document.documentElement.classList.contains("has-app") || !document.querySelector(".topbar")) return false;
   window.__cartoucheMounted ??= performance.now();
   const shown = [...document.images].filter((image) => { const box = image.getBoundingClientRect(); return box.width > 0 && box.bottom > 0 && box.top < innerHeight; });
   return (shown.length > 0 && shown.every((image) => image.complete)) || performance.now() - window.__cartoucheMounted > 2000;
@@ -619,18 +729,16 @@ task<IJsonValue^> CartouchePage::Call(String^ method, JsonArray^ args) {
 		return value(JsonValue::CreateNullValue());
 	}
 	if (name == L"settings") {
-		// Moonlight's settings for the PC: resolution, frame rate, bitrate, codec, sound.
-		MoonlightHost^ chosen = nullptr;
-		for (auto host : state->SavedHosts) {
-			if (host->Paired) {
-				chosen = host;
-				break;
-			}
-		}
-		if (chosen == nullptr && state->SavedHosts->Size > 0) chosen = state->SavedHosts->GetAt(0);
-		if (chosen == nullptr) throw std::runtime_error("Aucun PC");
-		Frame->Navigate(Windows::UI::Xaml::Interop::TypeName(HostSettingsPage::typeid), chosen);
+		// Moonlight's own screen for the PC: the rare settings (Réglages avancés).
+		Frame->Navigate(Windows::UI::Xaml::Interop::TypeName(HostSettingsPage::typeid), SettingsHost(state));
 		return value(JsonValue::CreateNullValue());
+	}
+	if (name == L"streamSettings") return value(StreamSettings(SettingsHost(state)));
+	if (name == L"setStreamSetting") {
+		auto host = SettingsHost(state);
+		ApplyStreamSetting(host, std::wstring(args->GetStringAt(0)->Data()), args->GetStringAt(1));
+		state->UpdateFile();
+		return value(StreamSettings(host));
 	}
 	if (name == L"moonlight") {
 		Frame->Navigate(Windows::UI::Xaml::Interop::TypeName(HostSelectorPage::typeid));
@@ -720,6 +828,10 @@ void CartouchePage::Play(MoonlightHost^ host, int appId, String^ name) {
 	config->hostname = host->LastHostname;
 	config->appID = appId;
 	config->appName = name;
+	// Its cover for the launch screen: the one Cartouche drew for the PC's list (apps).
+	std::wstring cover = LocalFolder(L"covers\\" + std::wstring(Uuid(host)->Data())) + std::to_wstring(appId) + L".png";
+	if (GetFileAttributesW(cover.c_str()) != INVALID_FILE_ATTRIBUTES) config->coverUri = L"ms-appdata:///local/covers/" + Uuid(host) + L"/" + ref new String(std::to_wstring(appId).c_str()) + L".png";
+	config->computerName = host->ComputerName;
 	config->width = host->Resolution->Width;
 	config->height = host->Resolution->Height;
 	config->bitrate = host->Bitrate;

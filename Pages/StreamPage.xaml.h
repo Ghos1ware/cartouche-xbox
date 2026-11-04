@@ -77,6 +77,12 @@ namespace moonlight_xbox_dx
 	    }
 
 		void OnBackRequested(Platform::Object^ e, Windows::UI::Core::BackRequestedEventArgs^ args);
+
+		// Cartouche's launch screen (ProgressView): the stages, a failure, the closing, the fade.
+		void SetLaunchStage(int stage);
+		void ShowLaunchFailure(Platform::String^ message);
+		void ShowClosing();
+		void HideLaunch();
 		property ApplicationState^ State {
 			ApplicationState^ get() {
 				return GetApplicationState();
@@ -160,6 +166,11 @@ namespace moonlight_xbox_dx
 		void OnKeyDown(Windows::UI::Core::CoreWindow^ sender, Windows::UI::Core::KeyEventArgs^ args);
 		void OnKeyUp(Windows::UI::Core::CoreWindow^ sender, Windows::UI::Core::KeyEventArgs^ args);
 		void disconnectAndCloseButton_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void PrepareLaunch();
+		void MoveBar(double to);
+		void FailBack_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void FailLogs_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		bool launchFailed = false;
 		Windows::Foundation::EventRegistrationToken keyDownHandler, keyUpHandler;
 		void Keyboard_OnKeyDown(moonlight_xbox_dx::KeyboardControl^ sender, moonlight_xbox_dx::KeyEvent^ e);
 		void Keyboard_OnKeyUp(moonlight_xbox_dx::KeyboardControl^ sender, moonlight_xbox_dx::KeyEvent^ e);
