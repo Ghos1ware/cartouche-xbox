@@ -84,7 +84,10 @@
             <FontFamily x:Key="CartoucheText">ms-appx:///Assets/Fonts/Onest.ttf#Onest</FontFamily>
 
 
+            <!-- Set here, not only as theme brushes: WinUI 2.8 paints its menus with its own acrylic. -->
             <Style TargetType="MenuFlyoutPresenter">
+                <Setter Property="Background" Value="#F7141128" />
+                <Setter Property="BorderBrush" Value="#4DB794FF" />
                 <Setter Property="BorderThickness" Value="1" />
                 <Setter Property="Padding" Value="8,10" />
                 <Setter Property="MinWidth" Value="360" />
@@ -93,11 +96,21 @@
                 <Setter Property="FontFamily" Value="{StaticResource CartoucheText}" />
                 <Setter Property="FontSize" Value="16" />
                 <Setter Property="Padding" Value="14,11" />
+                <Setter Property="FocusVisualPrimaryBrush" Value="#F2C14E" />
+                <Setter Property="FocusVisualSecondaryBrush" Value="Transparent" />
+                <Setter Property="FocusVisualPrimaryThickness" Value="2" />
+                <Setter Property="FocusVisualSecondaryThickness" Value="0" />
+                <Setter Property="FocusVisualMargin" Value="2" />
             </Style>
             <Style TargetType="MenuFlyoutSubItem">
                 <Setter Property="FontFamily" Value="{StaticResource CartoucheText}" />
                 <Setter Property="FontSize" Value="16" />
                 <Setter Property="Padding" Value="14,11" />
+                <Setter Property="FocusVisualPrimaryBrush" Value="#F2C14E" />
+                <Setter Property="FocusVisualSecondaryBrush" Value="Transparent" />
+                <Setter Property="FocusVisualPrimaryThickness" Value="2" />
+                <Setter Property="FocusVisualSecondaryThickness" Value="0" />
+                <Setter Property="FocusVisualMargin" Value="2" />
             </Style>
         </ResourceDictionary>
     </Application.Resources>
