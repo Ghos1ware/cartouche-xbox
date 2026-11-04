@@ -2,8 +2,103 @@
     x:Class="moonlight_xbox_dx.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:local="using:moonlight_xbox_dx">
+    xmlns:local="using:moonlight_xbox_dx"
+    RequestedTheme="Dark">
     <Application.Resources>
-        <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Default">
+                    <SolidColorBrush x:Key="MenuFlyoutPresenterBackground" Color="#F2141128" />
+                    <SolidColorBrush x:Key="MenuFlyoutPresenterBorderBrush" Color="#40B794FF" />
+                    <SolidColorBrush x:Key="MenuFlyoutSeparatorBackground" Color="#1FFFFFFF" />
+                    <SolidColorBrush x:Key="MenuFlyoutItemBackground" Color="Transparent" />
+                    <SolidColorBrush x:Key="MenuFlyoutItemBackgroundPointerOver" Color="#338B5CF6" />
+                    <SolidColorBrush x:Key="MenuFlyoutItemBackgroundPressed" Color="#4D8B5CF6" />
+                    <SolidColorBrush x:Key="MenuFlyoutItemForeground" Color="#F3F0FF" />
+                    <SolidColorBrush x:Key="MenuFlyoutItemForegroundPointerOver" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="MenuFlyoutItemForegroundPressed" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="MenuFlyoutSubItemBackground" Color="Transparent" />
+                    <SolidColorBrush x:Key="MenuFlyoutSubItemBackgroundPointerOver" Color="#338B5CF6" />
+                    <SolidColorBrush x:Key="MenuFlyoutSubItemBackgroundPressed" Color="#4D8B5CF6" />
+                    <SolidColorBrush x:Key="MenuFlyoutSubItemBackgroundSubMenuOpened" Color="#338B5CF6" />
+                    <SolidColorBrush x:Key="MenuFlyoutSubItemForeground" Color="#F3F0FF" />
+                    <SolidColorBrush x:Key="MenuFlyoutSubItemForegroundPointerOver" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="MenuFlyoutSubItemForegroundSubMenuOpened" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="MenuFlyoutSubItemChevron" Color="#B794FF" />
+                    <SolidColorBrush x:Key="MenuFlyoutSubItemChevronPointerOver" Color="#F2C14E" />
+                    <SolidColorBrush x:Key="MenuFlyoutSubItemChevronSubMenuOpened" Color="#F2C14E" />
+                    <SolidColorBrush x:Key="SliderTrackFill" Color="#26FFFFFF" />
+                    <SolidColorBrush x:Key="SliderTrackFillPointerOver" Color="#33FFFFFF" />
+                    <SolidColorBrush x:Key="SliderTrackValueFill" Color="#F2C14E" />
+                    <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#F5CD69" />
+                    <SolidColorBrush x:Key="SliderThumbBackground" Color="#F3F0FF" />
+                    <SolidColorBrush x:Key="SliderThumbBackgroundPointerOver" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="SliderTickBarFill" Color="#59FFFFFF" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="MenuFlyoutPresenterBackground" Color="#F2141128" />
+                    <SolidColorBrush x:Key="MenuFlyoutPresenterBorderBrush" Color="#40B794FF" />
+                    <SolidColorBrush x:Key="MenuFlyoutSeparatorBackground" Color="#1FFFFFFF" />
+                    <SolidColorBrush x:Key="MenuFlyoutItemBackground" Color="Transparent" />
+                    <SolidColorBrush x:Key="MenuFlyoutItemBackgroundPointerOver" Color="#338B5CF6" />
+                    <SolidColorBrush x:Key="MenuFlyoutItemBackgroundPressed" Color="#4D8B5CF6" />
+                    <SolidColorBrush x:Key="MenuFlyoutItemForeground" Color="#F3F0FF" />
+                    <SolidColorBrush x:Key="MenuFlyoutItemForegroundPointerOver" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="MenuFlyoutItemForegroundPressed" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="MenuFlyoutSubItemBackground" Color="Transparent" />
+                    <SolidColorBrush x:Key="MenuFlyoutSubItemBackgroundPointerOver" Color="#338B5CF6" />
+                    <SolidColorBrush x:Key="MenuFlyoutSubItemBackgroundPressed" Color="#4D8B5CF6" />
+                    <SolidColorBrush x:Key="MenuFlyoutSubItemBackgroundSubMenuOpened" Color="#338B5CF6" />
+                    <SolidColorBrush x:Key="MenuFlyoutSubItemForeground" Color="#F3F0FF" />
+                    <SolidColorBrush x:Key="MenuFlyoutSubItemForegroundPointerOver" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="MenuFlyoutSubItemForegroundSubMenuOpened" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="MenuFlyoutSubItemChevron" Color="#B794FF" />
+                    <SolidColorBrush x:Key="MenuFlyoutSubItemChevronPointerOver" Color="#F2C14E" />
+                    <SolidColorBrush x:Key="MenuFlyoutSubItemChevronSubMenuOpened" Color="#F2C14E" />
+                    <SolidColorBrush x:Key="SliderTrackFill" Color="#26FFFFFF" />
+                    <SolidColorBrush x:Key="SliderTrackFillPointerOver" Color="#33FFFFFF" />
+                    <SolidColorBrush x:Key="SliderTrackValueFill" Color="#F2C14E" />
+                    <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#F5CD69" />
+                    <SolidColorBrush x:Key="SliderThumbBackground" Color="#F3F0FF" />
+                    <SolidColorBrush x:Key="SliderThumbBackgroundPointerOver" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="SliderTickBarFill" Color="#59FFFFFF" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <!-- Cartouche's look for every native screen, menus and their popups included (a style
+                 in a page does not reach a menu's popup): its violet in place of the Xbox's accent,
+                 its dark glass, its rounding, its type. -->
+            <Color x:Key="SystemAccentColor">#8B5CF6</Color>
+            <Color x:Key="SystemAccentColorLight1">#A07CFA</Color>
+            <Color x:Key="SystemAccentColorLight2">#B794FF</Color>
+            <Color x:Key="SystemAccentColorLight3">#CDB6FF</Color>
+            <Color x:Key="SystemAccentColorDark1">#7444E8</Color>
+            <Color x:Key="SystemAccentColorDark2">#5B2FC9</Color>
+            <Color x:Key="SystemAccentColorDark3">#4421A3</Color>
+            <CornerRadius x:Key="OverlayCornerRadius">18</CornerRadius>
+            <CornerRadius x:Key="ControlCornerRadius">10</CornerRadius>
+            <FontFamily x:Key="CartoucheText">ms-appx:///Assets/Fonts/Onest.ttf#Onest</FontFamily>
+
+
+            <Style TargetType="MenuFlyoutPresenter">
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="Padding" Value="8,10" />
+                <Setter Property="MinWidth" Value="360" />
+            </Style>
+            <Style TargetType="MenuFlyoutItem">
+                <Setter Property="FontFamily" Value="{StaticResource CartoucheText}" />
+                <Setter Property="FontSize" Value="16" />
+                <Setter Property="Padding" Value="14,11" />
+            </Style>
+            <Style TargetType="MenuFlyoutSubItem">
+                <Setter Property="FontFamily" Value="{StaticResource CartoucheText}" />
+                <Setter Property="FontSize" Value="16" />
+                <Setter Property="Padding" Value="14,11" />
+            </Style>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

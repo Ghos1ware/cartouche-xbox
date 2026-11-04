@@ -457,8 +457,8 @@ void StreamPage::UpdateAudioGlitchText() {
 
 
 	m_audioGlitchText->Text = Utils::StringFromStdString(
-		"Glitches: " + std::to_string(AudioPlayer::instance().GetGlitchCount()) +
-		" / Drops to reduce latency: " + std::to_string(AudioPlayer::instance().GetLatencyDropCount()));
+		"Gr\xC3\xA9sillements : " + std::to_string(AudioPlayer::instance().GetGlitchCount()) +
+		" \xC2\xB7 Rattrapages de latence : " + std::to_string(AudioPlayer::instance().GetLatencyDropCount()));
 }
 
 // Event handlers

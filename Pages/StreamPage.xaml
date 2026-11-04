@@ -38,30 +38,6 @@
             <Setter Property="BorderBrush" Value="#F3F0FF" />
         </Style>
 
-        <!-- The in-game menu (View + Menu): Cartouche's dark glass, its type, its violet. -->
-        <Style TargetType="MenuFlyoutPresenter">
-            <Setter Property="Background" Value="#F0141128" />
-            <Setter Property="BorderBrush" Value="#40B794FF" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="18" />
-            <Setter Property="Padding" Value="8,10" />
-            <Setter Property="MinWidth" Value="340" />
-        </Style>
-        <Style TargetType="MenuFlyoutItem">
-            <Setter Property="FontFamily" Value="ms-appx:///Assets/Fonts/Onest.ttf#Onest" />
-            <Setter Property="FontSize" Value="16" />
-            <Setter Property="Foreground" Value="#F3F0FF" />
-            <Setter Property="Padding" Value="14,11" />
-            <Setter Property="CornerRadius" Value="10" />
-        </Style>
-        <Style TargetType="MenuFlyoutSubItem">
-            <Setter Property="FontFamily" Value="ms-appx:///Assets/Fonts/Onest.ttf#Onest" />
-            <Setter Property="FontSize" Value="16" />
-            <Setter Property="Foreground" Value="#F3F0FF" />
-            <Setter Property="Padding" Value="14,11" />
-            <Setter Property="CornerRadius" Value="10" />
-        </Style>
-
         <!-- The launch: the cover slides in, the title rises, a light runs along the bar. -->
         <Storyboard x:Name="LaunchIn">
             <DoubleAnimation Storyboard.TargetName="Backdrop" Storyboard.TargetProperty="Opacity" From="0" To="0.34" Duration="0:0:1.2" EasingFunction="{StaticResource Out}" />
