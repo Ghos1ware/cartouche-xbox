@@ -196,7 +196,11 @@ void CartouchePage::OnNavigatedTo(NavigationEventArgs^ e) {
 	Windows::UI::ViewManagement::ApplicationView::GetForCurrentView()->SetDesiredBoundsMode(Windows::UI::ViewManagement::ApplicationViewBoundsMode::UseVisible);
 	backToken = SystemNavigationManager::GetForCurrentView()->BackRequested += ref new EventHandler<BackRequestedEventArgs^>(this, &CartouchePage::OnBackRequested);
 	Web->Visibility = Windows::UI::Xaml::Visibility::Visible;
-	if (Web->CoreWebView2 != nullptr) Web->CoreWebView2->Resume();
+	if (Web->CoreWebView2 != nullptr) {
+		Web->CoreWebView2->Resume();
+		// Back from a stream or Moonlight's pages: the controller is the page's again.
+		Web->Focus(Windows::UI::Xaml::FocusState::Programmatic);
+	}
 	Start();
 	StartDiscovery();
 
@@ -294,6 +298,21 @@ void CartouchePage::Start() {
 		core->WebMessageReceived += ref new TypedEventHandler<CoreWebView2^, CoreWebView2WebMessageReceivedEventArgs^>(page, &CartouchePage::OnWebMessage);
 		core->NavigationStarting += ref new TypedEventHandler<CoreWebView2^, CoreWebView2NavigationStartingEventArgs^>(page, &CartouchePage::OnNavigationStarting);
 		core->NewWindowRequested += ref new TypedEventHandler<CoreWebView2^, CoreWebView2NewWindowRequestedEventArgs^>(page, &CartouchePage::OnNewWindow);
+		// The page reads the controller only while its document has the focus (input.ts): the
+		// WebView takes it as soon as a page has loaded, and again if XAML ever moves it away.
+		core->NavigationCompleted += ref new TypedEventHandler<CoreWebView2^, CoreWebView2NavigationCompletedEventArgs^>([weakThis](CoreWebView2^ sender, CoreWebView2NavigationCompletedEventArgs^ args) {
+			auto inner = weakThis.Resolve<CartouchePage>();
+			if (inner != nullptr) inner->Web->Focus(Windows::UI::Xaml::FocusState::Programmatic);
+		});
+		page->Web->LostFocus += ref new RoutedEventHandler([weakThis](Object^ sender, RoutedEventArgs^ args) {
+			auto inner = weakThis.Resolve<CartouchePage>();
+			if (inner == nullptr || inner->Frame == nullptr || inner->Frame->Content != inner) return;
+			inner->Dispatcher->RunAsync(CoreDispatcherPriority::Low, ref new DispatchedHandler([weakThis]() {
+				auto again = weakThis.Resolve<CartouchePage>();
+				if (again != nullptr && again->Frame != nullptr && again->Frame->Content == again) again->Web->Focus(Windows::UI::Xaml::FocusState::Programmatic);
+			}));
+		});
+		page->Web->Focus(Windows::UI::Xaml::FocusState::Programmatic);
 		create_task(core->AddScriptToExecuteOnDocumentCreatedAsync(ref new String(CHANNEL))).then([weakThis](task<String^> added) {
 			try {
 				added.get();

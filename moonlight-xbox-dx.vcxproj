@@ -1,5 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- WinUI 2.8 declares its framework package (Microsoft.UI.Xaml.2.8) here: without it the app cannot start. -->
+  <Import Project="packages\Microsoft.UI.Xaml.2.8.7\build\native\Microsoft.UI.Xaml.props" Condition="Exists('packages\Microsoft.UI.Xaml.2.8.7\build\native\Microsoft.UI.Xaml.props')" />
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
       <Configuration>Debug</Configuration>
