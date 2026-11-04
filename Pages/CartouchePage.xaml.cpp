@@ -53,6 +53,10 @@ namespace {
 	const wchar_t* ORIGIN = L"https://cartouche.gg";
 	const wchar_t* HOME = L"https://cartouche.gg/?shell=xbox";
 	const int API_PORT = 47975;
+	// The covers the page shows, served from their folders as files (SetVirtualHostNameToFolderMapping):
+	// inlined in the channel, a PC's few hundred covers took the Xbox's memory.
+	const wchar_t* COVERS_HOST = L"covers.cartouche.example";
+	const wchar_t* PC_COVERS_HOST = L"pc-covers.cartouche.example";
 
 	// On documents of the site only, top frame only: the page sees `CartoucheXbox`, with the
 	// same shape as Android's channel (postMessage, and "message" events carrying strings).
@@ -99,21 +103,16 @@ namespace {
 		return host->InstanceId != nullptr && !host->InstanceId->IsEmpty() ? host->InstanceId : host->LastHostname;
 	}
 
-	std::vector<uint8_t> ReadAll(const std::wstring& path) {
-		std::ifstream in(path, std::ios::binary);
-		return std::vector<uint8_t>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-	}
-
 	void WriteAll(const std::wstring& path, const std::vector<uint8_t>& bytes) {
 		std::ofstream out(path, std::ios::binary);
 		out.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
 	}
 
-	IJsonValue^ DataUrl(const std::vector<uint8_t>& bytes) {
-		if (bytes.empty()) return JsonValue::CreateNullValue();
-		auto buffer = CryptographicBuffer::CreateFromByteArray(ArrayReference<uint8>(const_cast<uint8*>(bytes.data()), static_cast<unsigned int>(bytes.size())));
-		String^ type = bytes.size() > 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 ? L"image/jpeg" : L"image/png";
-		return JsonValue::CreateStringValue(L"data:" + type + L";base64," + CryptographicBuffer::EncodeToBase64String(buffer));
+	// The page's address of a cover kept in one of the served folders; null when there is none.
+	IJsonValue^ Served(const wchar_t* host, const std::wstring& file, const std::wstring& path) {
+		WIN32_FILE_ATTRIBUTE_DATA data;
+		if (!GetFileAttributesExW(file.c_str(), GetFileExInfoStandard, &data) || (data.nFileSizeHigh == 0 && data.nFileSizeLow == 0)) return JsonValue::CreateNullValue();
+		return JsonValue::CreateStringValue(ref new String((L"https://" + std::wstring(host) + L"/" + path).c_str()));
 	}
 
 	std::wstring LocalFolder(const std::wstring& sub) {
@@ -411,6 +410,8 @@ void CartouchePage::Start() {
 #if !defined(_DEBUG)
 		core->Settings->AreDevToolsEnabled = false;
 #endif
+		core->SetVirtualHostNameToFolderMapping(ref new String(COVERS_HOST), ref new String(LocalFolder(L"covers").c_str()), CoreWebView2HostResourceAccessKind::Allow);
+		core->SetVirtualHostNameToFolderMapping(ref new String(PC_COVERS_HOST), ref new String(LocalFolder(L"pc-covers").c_str()), CoreWebView2HostResourceAccessKind::Allow);
 		core->WebMessageReceived += ref new TypedEventHandler<CoreWebView2^, CoreWebView2WebMessageReceivedEventArgs^>(page, &CartouchePage::OnWebMessage);
 		core->NavigationStarting += ref new TypedEventHandler<CoreWebView2^, CoreWebView2NavigationStartingEventArgs^>(page, &CartouchePage::OnNavigationStarting);
 		core->NewWindowRequested += ref new TypedEventHandler<CoreWebView2^, CoreWebView2NewWindowRequestedEventArgs^>(page, &CartouchePage::OnNewWindow);
@@ -653,7 +654,8 @@ task<IJsonValue^> CartouchePage::Call(String^ method, JsonArray^ args) {
 	}
 	if (name == L"apps") {
 		MoonlightHost^ host = Host(args->GetStringAt(0));
-		// The PC's apps (Cartouche Stream publishes Ma collection there), each with its cover.
+		// The PC's apps (Cartouche Stream publishes Ma collection there), each with its cover, fetched
+		// once and kept.
 		return create_task([host]() -> IJsonValue^ {
 			Server server(host);
 			PAPP_LIST list = nullptr;
@@ -662,13 +664,15 @@ task<IJsonValue^> CartouchePage::Call(String^ method, JsonArray^ args) {
 			auto folder = LocalFolder(L"covers\\" + std::wstring(Uuid(host)->Data()));
 			std::string folderA = Utils::PlatformStringToStdString(ref new String(folder.c_str()));
 			auto apps = ref new JsonArray();
+			std::wstring uuid(Uuid(host)->Data());
 			for (PAPP_LIST app = list; app != nullptr; app = app->next) {
-				gs_appasset(&server.data, folderA.c_str(), app->id);
+				std::wstring cover = std::to_wstring(app->id) + L".png";
+				if (GetFileAttributesW((folder + cover).c_str()) == INVALID_FILE_ATTRIBUTES) gs_appasset(&server.data, folderA.c_str(), app->id);
 				auto json = ref new JsonObject();
 				json->Insert(L"id", JsonValue::CreateNumberValue(app->id));
 				json->Insert(L"name", JsonValue::CreateStringValue(Wide(app->name ? app->name : "")));
 				json->Insert(L"hdr", JsonValue::CreateBooleanValue(false));
-				json->Insert(L"cover", DataUrl(ReadAll(folder + std::to_wstring(app->id) + L".png")));
+				json->Insert(L"cover", Served(COVERS_HOST, folder + cover, uuid + L"/" + cover));
 				apps->Append(json);
 			}
 			while (list != nullptr) {
@@ -770,13 +774,10 @@ task<IJsonValue^> CartouchePage::Call(String^ method, JsonArray^ args) {
 		fingerprint.erase(std::remove_if(fingerprint.begin(), fingerprint.end(), [](wchar_t c) { return !iswalnum(c); }), fingerprint.end());
 		// Kept under its fingerprint: a new cover is a new file.
 		return create_task([host, id, fingerprint]() -> IJsonValue^ {
-			std::wstring file = LocalFolder(L"pc-covers") + std::wstring(Uuid(host)->Data()) + L"-" + std::wstring(id.begin(), id.end()) + L"-" + fingerprint + L".png";
-			auto image = ReadAll(file);
-			if (image.empty()) {
-				image = ApiGet(host, "/v1/games/" + id + "/cover");
-				WriteAll(file, image);
-			}
-			return DataUrl(image);
+			std::wstring name = std::wstring(Uuid(host)->Data()) + L"-" + std::wstring(id.begin(), id.end()) + L"-" + fingerprint + L".png";
+			std::wstring file = LocalFolder(L"pc-covers") + name;
+			if (GetFileAttributesW(file.c_str()) == INVALID_FILE_ATTRIBUTES) WriteAll(file, ApiGet(host, "/v1/games/" + id + "/cover"));
+			return Served(PC_COVERS_HOST, file, name);
 		});
 	}
 	throw std::invalid_argument("Unknown method " + Utils::PlatformStringToStdString(method));
