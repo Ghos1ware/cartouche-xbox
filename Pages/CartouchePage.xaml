@@ -4,9 +4,88 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:moonlight_xbox_dx"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    xmlns:media="using:Microsoft.UI.Xaml.Media"
     Background="#07060D">
+
+    <Page.Resources>
+        <CubicEase x:Key="Out" EasingMode="EaseOut" />
+
+        <!-- The splash's cartridge settles, the glow rises, the name and the bar appear. -->
+        <Storyboard x:Name="Intro">
+            <DoubleAnimation Storyboard.TargetName="Glow" Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:1.1" EasingFunction="{StaticResource Out}" />
+            <DoubleAnimation Storyboard.TargetName="CartScale" Storyboard.TargetProperty="ScaleX" From="1" To="0.86" BeginTime="0:0:0.15" Duration="0:0:0.9" EasingFunction="{StaticResource Out}" />
+            <DoubleAnimation Storyboard.TargetName="CartScale" Storyboard.TargetProperty="ScaleY" From="1" To="0.86" BeginTime="0:0:0.15" Duration="0:0:0.9" EasingFunction="{StaticResource Out}" />
+            <DoubleAnimation Storyboard.TargetName="CartScale" Storyboard.TargetProperty="TranslateY" From="0" To="-34" BeginTime="0:0:0.15" Duration="0:0:0.9" EasingFunction="{StaticResource Out}" />
+            <DoubleAnimation Storyboard.TargetName="Word" Storyboard.TargetProperty="Opacity" From="0" To="1" BeginTime="0:0:0.45" Duration="0:0:0.7" EasingFunction="{StaticResource Out}" />
+            <DoubleAnimation Storyboard.TargetName="WordShift" Storyboard.TargetProperty="Y" From="14" To="0" BeginTime="0:0:0.45" Duration="0:0:0.7" EasingFunction="{StaticResource Out}" />
+            <DoubleAnimation Storyboard.TargetName="Track" Storyboard.TargetProperty="Opacity" From="0" To="1" BeginTime="0:0:0.7" Duration="0:0:0.5" />
+        </Storyboard>
+
+        <!-- While the interface loads: the glow breathes, a light runs along the bar. -->
+        <Storyboard x:Name="Waiting" RepeatBehavior="Forever">
+            <DoubleAnimation Storyboard.TargetName="GlowScale" Storyboard.TargetProperty="ScaleX" From="1" To="1.12" AutoReverse="True" Duration="0:0:1.6" EasingFunction="{StaticResource Out}" />
+            <DoubleAnimation Storyboard.TargetName="GlowScale" Storyboard.TargetProperty="ScaleY" From="1" To="1.12" AutoReverse="True" Duration="0:0:1.6" EasingFunction="{StaticResource Out}" />
+            <DoubleAnimation Storyboard.TargetName="RunShift" Storyboard.TargetProperty="X" From="-90" To="240" Duration="0:0:1.3" BeginTime="0:0:0" />
+        </Storyboard>
+
+        <!-- Ready: the cartridge leans in and everything opens onto the interface. -->
+        <Storyboard x:Name="Outro">
+            <DoubleAnimation Storyboard.TargetName="Loader" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.5" EasingFunction="{StaticResource Out}" />
+            <DoubleAnimation Storyboard.TargetName="CartScale" Storyboard.TargetProperty="ScaleX" To="0.98" Duration="0:0:0.5" EasingFunction="{StaticResource Out}" />
+            <DoubleAnimation Storyboard.TargetName="CartScale" Storyboard.TargetProperty="ScaleY" To="0.98" Duration="0:0:0.5" EasingFunction="{StaticResource Out}" />
+        </Storyboard>
+    </Page.Resources>
+
     <!-- Cartouche's interface, served by the site (https://cartouche.gg/?shell=xbox). -->
     <Grid>
         <muxc:WebView2 x:Name="Web" />
+
+        <!-- The loading screen: it takes over from the system's splash (same image, same place)
+             and stays until the interface is drawn, its first images included. -->
+        <Grid x:Name="Loader" Background="#07060D" IsHitTestVisible="False">
+            <Ellipse x:Name="Glow" Width="760" Height="760" Opacity="0" HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransformOrigin="0.5,0.5">
+                <Ellipse.RenderTransform>
+                    <ScaleTransform x:Name="GlowScale" />
+                </Ellipse.RenderTransform>
+                <Ellipse.Fill>
+                    <media:RadialGradientBrush>
+                        <GradientStop Color="#664C1D95" Offset="0" />
+                        <GradientStop Color="#333B0A8C" Offset="0.45" />
+                        <GradientStop Color="#0007060D" Offset="1" />
+                    </media:RadialGradientBrush>
+                </Ellipse.Fill>
+            </Ellipse>
+
+            <Image x:Name="Cart" Source="ms-appx:///Assets/SplashScreen.png" Width="620" Height="300" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransformOrigin="0.5,0.5">
+                <Image.RenderTransform>
+                    <CompositeTransform x:Name="CartScale" />
+                </Image.RenderTransform>
+            </Image>
+
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,236,0,0" Spacing="18">
+                <TextBlock x:Name="Word" Text="CARTOUCHE" Opacity="0" HorizontalAlignment="Center" FontFamily="Segoe UI" FontWeight="Bold" FontSize="22" CharacterSpacing="520" Foreground="#F3F0FF">
+                    <TextBlock.RenderTransform>
+                        <TranslateTransform x:Name="WordShift" />
+                    </TextBlock.RenderTransform>
+                </TextBlock>
+                <Grid x:Name="Track" Width="150" Height="3" CornerRadius="1.5" Opacity="0" HorizontalAlignment="Center" Background="#1FFFFFFF">
+                    <Grid.Clip>
+                        <RectangleGeometry Rect="0,0,150,3" />
+                    </Grid.Clip>
+                    <Rectangle Width="90" Height="3" RadiusX="1.5" RadiusY="1.5" HorizontalAlignment="Left">
+                        <Rectangle.RenderTransform>
+                            <TranslateTransform x:Name="RunShift" X="-90" />
+                        </Rectangle.RenderTransform>
+                        <Rectangle.Fill>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                <GradientStop Color="#00F2C14E" Offset="0" />
+                                <GradientStop Color="#FFF2C14E" Offset="0.55" />
+                                <GradientStop Color="#FFB794FF" Offset="1" />
+                            </LinearGradientBrush>
+                        </Rectangle.Fill>
+                    </Rectangle>
+                </Grid>
+            </StackPanel>
+        </Grid>
     </Grid>
 </Page>

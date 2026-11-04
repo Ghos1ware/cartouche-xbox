@@ -277,6 +277,13 @@ void CartouchePage::OnStateLoaded() {
 void CartouchePage::Start() {
 	if (started) return;
 	started = true;
+	Intro->Begin();
+	Waiting->Begin();
+	WatchReady();
+	// The interface's sounds (and the browser games') play from the controller: on a console no
+	// press is a "user gesture", so the WebView may play sound without one. Read when the
+	// WebView's browser starts, before the first EnsureCoreWebView2Async.
+	SetEnvironmentVariableW(L"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", L"--autoplay-policy=no-user-gesture-required");
 	WeakReference weakThis(this);
 	create_task(Web->EnsureCoreWebView2Async()).then([weakThis](task<void> t) {
 		try {
@@ -323,6 +330,62 @@ void CartouchePage::Start() {
 			if (inner != nullptr) inner->Web->CoreWebView2->Navigate(ref new String(HOME));
 		}, task_continuation_context::use_current());
 	}, task_continuation_context::use_current());
+}
+
+// Drawn: the app is mounted (main.tsx adds has-app) and the images on screen have arrived, so
+// the interface appears whole, not tile by tile; 2 s after mounting at most (a screen without
+// images, lazy covers the WebView does not load while it is covered).
+static const wchar_t* READY = LR"JS((() => {
+  if (!document.documentElement.classList.contains("has-app")) return false;
+  window.__cartoucheMounted ??= performance.now();
+  const shown = [...document.images].filter((image) => { const box = image.getBoundingClientRect(); return box.width > 0 && box.bottom > 0 && box.top < innerHeight; });
+  return (shown.length > 0 && shown.every((image) => image.complete)) || performance.now() - window.__cartoucheMounted > 2000;
+})())JS";
+
+void CartouchePage::WatchReady() {
+	shownAt = GetTickCount64();
+	readyTimer = ref new DispatcherTimer();
+	TimeSpan every;
+	every.Duration = 200 * 10000;
+	readyTimer->Interval = every;
+	WeakReference weakThis(this);
+	readyTimer->Tick += ref new EventHandler<Object^>([weakThis](Object^ sender, Object^ args) {
+		auto page = weakThis.Resolve<CartouchePage>();
+		if (page == nullptr || page->revealed) return;
+		auto elapsed = GetTickCount64() - page->shownAt;
+		// Long enough for the intro to land; never longer than 15 s (no network: the page says so).
+		if (elapsed > 15000) return page->Reveal();
+		if (page->checking || page->Web->CoreWebView2 == nullptr) return;
+		page->checking = true;
+		create_task(page->Web->CoreWebView2->ExecuteScriptAsync(ref new String(READY))).then([weakThis](task<String^> done) {
+			auto inner = weakThis.Resolve<CartouchePage>();
+			if (inner == nullptr) return;
+			inner->checking = false;
+			String^ result = nullptr;
+			try {
+				result = done.get();
+			}
+			catch (...) {
+			}
+			if (result == L"true" && GetTickCount64() - inner->shownAt >= 1500) inner->Reveal();
+		}, task_continuation_context::use_current());
+	});
+	readyTimer->Start();
+}
+
+void CartouchePage::Reveal() {
+	if (revealed) return;
+	revealed = true;
+	readyTimer->Stop();
+	WeakReference weakThis(this);
+	Outro->Completed += ref new EventHandler<Object^>([weakThis](Object^ sender, Object^ args) {
+		auto page = weakThis.Resolve<CartouchePage>();
+		if (page == nullptr) return;
+		page->Loader->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
+		page->Waiting->Stop();
+	});
+	Outro->Begin();
+	Web->Focus(Windows::UI::Xaml::FocusState::Programmatic);
 }
 
 void CartouchePage::OnNavigationStarting(CoreWebView2^ sender, CoreWebView2NavigationStartingEventArgs^ args) {

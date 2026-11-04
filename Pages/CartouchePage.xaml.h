@@ -35,6 +35,14 @@ namespace moonlight_xbox_dx {
 		void OnNewWindow(Microsoft::Web::WebView2::Core::CoreWebView2^ sender, Microsoft::Web::WebView2::Core::CoreWebView2NewWindowRequestedEventArgs^ args);
 		void OnBackRequested(Platform::Object^ sender, Windows::UI::Core::BackRequestedEventArgs^ args);
 
+		// The loading screen (Loader in the XAML): up from the splash until the interface is drawn.
+		void WatchReady();
+		void Reveal();
+		Windows::UI::Xaml::DispatcherTimer^ readyTimer;
+		ULONGLONG shownAt = 0;
+		bool checking = false;
+		bool revealed = false;
+
 		concurrency::task<Windows::Data::Json::IJsonValue^> Call(Platform::String^ method, Windows::Data::Json::JsonArray^ args);
 		void Answer(int id, Windows::Data::Json::IJsonValue^ value);
 		void Fail(int id, Platform::String^ error);
