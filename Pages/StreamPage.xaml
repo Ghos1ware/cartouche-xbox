@@ -410,8 +410,10 @@
                         </media:RadialGradientBrush>
                     </Ellipse.Fill>
                 </Ellipse>
-                <ScrollViewer VerticalScrollBarVisibility="Hidden" Padding="40,36,40,28">
-                    <StackPanel Spacing="18" XYFocusKeyboardNavigation="Enabled">
+                <ScrollViewer VerticalScrollBarVisibility="Hidden">
+                    <!-- Margins inside the scrolled content: a selected tile grows into them, unclipped. The
+                         TV-safe part is added in code (OpenMenu). -->
+                    <StackPanel x:Name="MenuContent" Spacing="18" Margin="40,36,40,28" XYFocusKeyboardNavigation="Enabled">
                         <Grid ColumnSpacing="18">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />

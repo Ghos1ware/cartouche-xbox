@@ -635,6 +635,13 @@ void StreamPage::OpenMenu() {
 	auto cover = configuration != nullptr && configuration->coverUri != nullptr && !configuration->coverUri->IsEmpty()
 		? configuration->coverUri : L"ms-appx:///Assets/Square150x150Logo.scale-400.png";
 	MenuCover->Source = ref new Windows::UI::Xaml::Media::Imaging::BitmapImage(ref new Windows::Foundation::Uri(cover));
+	// The stream fills the whole TV; a TV may crop its edges. The panel's content stays in the
+	// console's safe area (VisibleBounds), with room for a selected tile to grow.
+	auto window = Windows::UI::Xaml::Window::Current->Bounds;
+	auto safe = Windows::UI::ViewManagement::ApplicationView::GetForCurrentView()->VisibleBounds;
+	// When the console reports the whole screen as safe, Microsoft's TV margins (48 and 27).
+	auto inset = [](double v, double tv) { return v > 0.5 ? v : (IsXbox() ? tv : 0.0); };
+	MenuContent->Margin = Windows::UI::Xaml::Thickness(40, 36 + inset(safe.Y - window.Y, 27), 40 + inset((window.X + window.Width) - (safe.X + safe.Width), 48), 28 + inset((window.Y + window.Height) - (safe.Y + safe.Height), 27));
 	RefreshMenu();
 	MenuOut->Stop();
 	Menu->Visibility = Windows::UI::Xaml::Visibility::Visible;
