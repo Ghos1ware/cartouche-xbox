@@ -83,6 +83,10 @@ namespace moonlight_xbox_dx
 		void ShowLaunchFailure(Platform::String^ message);
 		void ShowClosing();
 		void HideLaunch();
+
+		// Cartouche's in-game menu (Menu in the XAML), opened by View + Menu.
+		void OpenMenu();
+		void CloseMenu();
 		property ApplicationState^ State {
 			ApplicationState^ get() {
 				return GetApplicationState();
@@ -171,6 +175,19 @@ namespace moonlight_xbox_dx
 		void FailBack_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 		void FailLogs_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 		bool launchFailed = false;
+		bool menuOpen = false;
+		void RefreshMenu();
+		void MenuResume_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void MenuBack_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void MenuQuit_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void MenuMouse_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void MenuKeyboard_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void MenuStats_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void MenuGuide_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void MenuPacing_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void MenuHdr_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void MenuDecoder_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void MenuLogs_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 		Windows::Foundation::EventRegistrationToken keyDownHandler, keyUpHandler;
 		void Keyboard_OnKeyDown(moonlight_xbox_dx::KeyboardControl^ sender, moonlight_xbox_dx::KeyEvent^ e);
 		void Keyboard_OnKeyUp(moonlight_xbox_dx::KeyboardControl^ sender, moonlight_xbox_dx::KeyEvent^ e);

@@ -525,8 +525,9 @@ void moonlight_xbox_dxMain::ProcessInput(int64_t now) {
 		auto result = state.GetComboResult(50, now); // hold buttons for a short time for View + Menu combo
 
 		if (result.comboTriggered) {
+			// Cartouche's in-game menu, not Moonlight's.
 			DISPATCH_UI(([this]() {
-				Windows::UI::Xaml::Controls::Flyout::ShowAttachedFlyout(m_streamPage->m_flyoutButton);
+				m_streamPage->OpenMenu();
 			}));
 
 			// send an empty controller packet, otherwise Sunshine may see View being kept held down,

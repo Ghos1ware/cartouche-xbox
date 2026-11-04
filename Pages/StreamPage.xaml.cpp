@@ -64,6 +64,8 @@ void StreamPage::OnBackRequested(Platform::Object^ e,Windows::UI::Core::BackRequ
 	// button is pressed which can result in the app being
 	// suspended if unhandled
 	args->Handled = true;
+	// B closes Cartouche's menu.
+	if (menuOpen) CloseMenu();
 }
 
 void StreamPage::Page_Loaded(Platform::Object ^ sender, Windows::UI::Xaml::RoutedEventArgs ^ e) {
@@ -610,4 +612,104 @@ void StreamPage::FailLogs_Click(Platform::Object^ sender, Windows::UI::Xaml::Rou
 	for (size_t i = lines.size() > 12 ? lines.size() - 12 : 0; i < lines.size(); i++) text += lines[i];
 	FailLog->Text = ref new Platform::String(text.c_str());
 	FailLog->Visibility = Windows::UI::Xaml::Visibility::Visible;
+}
+
+// ---- Cartouche's in-game menu ----
+
+void StreamPage::OpenMenu() {
+	if (menuOpen) return;
+	menuOpen = true;
+	if (m_main) m_main->SetFlyoutOpened(true);
+	auto name = configuration != nullptr && configuration->appName != nullptr ? configuration->appName : L"Cartouche";
+	MenuTitle->Text = name;
+	auto pc = configuration != nullptr && configuration->computerName != nullptr && !configuration->computerName->IsEmpty() ? configuration->computerName : L"ton PC";
+	std::wstring kicker = L"EN JEU SUR " + std::wstring(pc->Data());
+	std::transform(kicker.begin(), kicker.end(), kicker.begin(), ::towupper);
+	MenuKicker->Text = ref new Platform::String(kicker.c_str());
+	if (configuration != nullptr) {
+		std::wstring detail = std::to_wstring(configuration->width) + L"\u00d7" + std::to_wstring(configuration->height) + L" \u00b7 " +
+			std::to_wstring(configuration->FPS) + L" i/s \u00b7 " + std::to_wstring(configuration->bitrate / 1000) + L" Mb/s";
+		if (configuration->videoCodec != nullptr) detail += L" \u00b7 " + std::wstring(configuration->videoCodec == L"H.264" ? L"H.264" : L"HEVC");
+		MenuDetail->Text = ref new Platform::String(detail.c_str());
+	}
+	auto cover = configuration != nullptr && configuration->coverUri != nullptr && !configuration->coverUri->IsEmpty()
+		? configuration->coverUri : L"ms-appx:///Assets/Square150x150Logo.scale-400.png";
+	MenuCover->Source = ref new Windows::UI::Xaml::Media::Imaging::BitmapImage(ref new Windows::Foundation::Uri(cover));
+	RefreshMenu();
+	MenuOut->Stop();
+	Menu->Visibility = Windows::UI::Xaml::Visibility::Visible;
+	MenuIn->Begin();
+	MenuResume->Focus(Windows::UI::Xaml::FocusState::Keyboard);
+}
+
+void StreamPage::CloseMenu() {
+	if (!menuOpen) return;
+	menuOpen = false;
+	auto that = this;
+	MenuOut->Completed += ref new Windows::Foundation::EventHandler<Platform::Object^>([that](Platform::Object^, Platform::Object^) {
+		if (!that->menuOpen) that->Menu->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
+	});
+	MenuOut->Begin();
+	// The controller goes back to the game.
+	if (m_main) m_main->SetFlyoutOpened(false);
+}
+
+void StreamPage::RefreshMenu() {
+	auto state = [](bool on) { return on ? L"Activ\u00e9" : L"D\u00e9sactiv\u00e9"; };
+	MenuMouseState->Text = ref new Platform::String(state(MouseMode));
+	MenuStatsState->Text = ref new Platform::String(state(ShowStats));
+	MenuLogsState->Text = ref new Platform::String(state(ShowLogs));
+	MenuPacingState->Text = Pacer::instance().getPacingImmediate() ? L"R\u00e9activit\u00e9" : L"Fluidit\u00e9";
+}
+
+void StreamPage::MenuResume_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e) { CloseMenu(); }
+
+void StreamPage::MenuBack_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e) {
+	CloseMenu();
+	disonnectButton_Click(sender, e);
+}
+
+void StreamPage::MenuQuit_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e) {
+	CloseMenu();
+	disconnectAndCloseButton_Click(sender, e);
+}
+
+void StreamPage::MenuMouse_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e) {
+	toggleMouseButton_Click(sender, e);
+	CloseMenu();
+}
+
+void StreamPage::MenuKeyboard_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e) {
+	CloseMenu();
+	showKeyboardButton_Click(sender, e);
+}
+
+void StreamPage::MenuStats_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e) {
+	toggleStatsButton_Click(sender, e);
+	RefreshMenu();
+}
+
+void StreamPage::MenuGuide_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e) {
+	CloseMenu();
+	guideButtonShort_Click(sender, e);
+}
+
+void StreamPage::MenuPacing_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e) {
+	toggleFramePacing_Click(sender, e);
+	RefreshMenu();
+}
+
+void StreamPage::MenuHdr_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e) {
+	CloseMenu();
+	toggleHDR_WinAltB_Click(sender, e);
+}
+
+void StreamPage::MenuDecoder_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e) {
+	resetDecoder_Click(sender, e);
+	CloseMenu();
+}
+
+void StreamPage::MenuLogs_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e) {
+	toggleLogsButton_Click(sender, e);
+	RefreshMenu();
 }
