@@ -351,3 +351,4 @@ vcpkg_installed
 
 # Cartouche for Xbox: the sideload bundles
 output/
+output-store/
