@@ -341,6 +341,7 @@ namespace {
 	// the app and its page write what they see to LocalState\diagnostics.log. Nothing leaves the console.
 	bool diagOn = false;
 	std::wstring diagPath;
+	std::wstring diagFolder;
 	std::mutex diagLock;
 	void Diag(const std::wstring& line) {
 		if (!diagOn) return;
@@ -407,11 +408,29 @@ namespace {
   }, 500);
 })();)JS";
 
+	// The game's WebGPU, either hidden (WebGL 2: safe, but three's WebGL path costs the console's CPU far more
+	// per draw), or kept without its timestamps (« timestamp-query », as the WebGL timers: they brought the
+	// console's GPU process down). Chosen by a « preview-webgpu » file in LocalState while it is tried.
+	const wchar_t* PREVIEW_NO_WEBGPU = LR"JS(try { Object.defineProperty(Navigator.prototype, "gpu", { configurable: true, get: () => undefined }); } catch (e) {})JS";
+	const wchar_t* PREVIEW_WEBGPU_NO_TIMESTAMPS = LR"JS((() => {
+  try {
+    const A = window.GPUAdapter && GPUAdapter.prototype;
+    if (!A) return;
+    const features = Object.getOwnPropertyDescriptor(A, "features");
+    Object.defineProperty(A, "features", { configurable: true, get() {
+      const kept = new Set([...features.get.call(this)].filter((name) => name !== "timestamp-query"));
+      return { has: (name) => kept.has(name), forEach: (each, self) => kept.forEach(each, self), keys: () => kept.keys(), values: () => kept.values(), entries: () => kept.entries(), [Symbol.iterator]: () => kept[Symbol.iterator](), get size() { return kept.size; } };
+    } });
+    const requestDevice = A.requestDevice;
+    A.requestDevice = function (descriptor) {
+      if (descriptor && descriptor.requiredFeatures) descriptor = Object.assign({}, descriptor, { requiredFeatures: [...descriptor.requiredFeatures].filter((name) => name !== "timestamp-query") });
+      return requestDevice.call(this, descriptor);
+    };
+  } catch (e) {}
+})();)JS";
+
 	const wchar_t* PREVIEW_GATE = LR"JS((() => {
   try { navigator.gamepadInputEmulation = "gamepad"; } catch (e) {}
-  // No WebGPU here: on the console, a game drawing with it (the kit's three/webgpu) lost the graphics
-  // device as it loaded, the GPU process with it, the interface's included. Without it, WebGL 2.
-  try { Object.defineProperty(Navigator.prototype, "gpu", { configurable: true, get: () => undefined }); } catch (e) {}
   // No GPU timers either (the kit times each frame with them): asked for on the console, the GPU process went down.
   try {
     const TIMERS = /disjoint_timer_query/i;
@@ -551,16 +570,27 @@ void CartouchePage::Start() {
 	// The interface's sounds (and the browser games') play from the controller: on a console no
 	// press is a "user gesture", so the WebView may play sound without one. Read when the
 	// WebView's browser starts, before the first EnsureCoreWebView2Async.
-	SetEnvironmentVariableW(L"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", L"--autoplay-policy=no-user-gesture-required");
 	WeakReference weakThis(this);
+	std::wstring browserArgs = L"--autoplay-policy=no-user-gesture-required";
 	{
 		std::wstring folder(Windows::Storage::ApplicationData::Current->LocalFolder->Path->Data());
 		WIN32_FILE_ATTRIBUTE_DATA found;
 		diagOn = GetFileAttributesExW((folder + L"\\diagnostics-on").c_str(), GetFileExInfoStandard, &found) != 0;
 		diagPath = folder + L"\\diagnostics.log";
+		diagFolder = folder;
+		// Diagnostics only: the browser's own switches tried on the console (« browser-args.txt », one line),
+		// e.g. which shader compiler WebGPU uses.
+		if (diagOn) {
+			std::ifstream in(folder + L"\\browser-args.txt", std::ios::binary);
+			std::string extra((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+			while (!extra.empty() && (extra.back() == '\n' || extra.back() == '\r' || extra.back() == ' ')) extra.pop_back();
+			if (!extra.empty()) browserArgs += L" " + Utils::NarrowToWideString(extra);
+		}
 	}
+	SetEnvironmentVariableW(L"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", browserArgs.c_str());
 	if (diagOn) {
 		auto version = Windows::ApplicationModel::Package::Current->Id->Version;
+		Diag(L"args " + browserArgs);
 		Diag(L"start " + std::to_wstring(version.Major) + L"." + std::to_wstring(version.Minor) + L"." + std::to_wstring(version.Build) + L" size=" + std::to_wstring(static_cast<int>(ActualWidth)) + L"x" + std::to_wstring(static_cast<int>(ActualHeight)));
 		create_task([weakThis]() {
 			while (true) {
@@ -571,6 +601,28 @@ void CartouchePage::Start() {
 				line += L" preview=" + std::wstring(page->previewOrigin != nullptr ? L"open" : L"closed") + L" loaded=" + (page->previewLoaded ? L"1" : L"0") + L" playing=" + (page->previewPlaying.load() ? L"1" : L"0");
 				page = nullptr;
 				Diag(line);
+			}
+		});
+		// DevTools through the Device Portal (nothing listens on the network): a « devtools-cmd.json » put in
+		// LocalState is one DevTools protocol call on the interface or the game, its answer written to
+		// devtools-<id>.json beside it.
+		create_task([weakThis]() {
+			while (true) {
+				Sleep(300);
+				auto page = weakThis.Resolve<CartouchePage>();
+				if (page == nullptr) break;
+				std::wstring path = diagFolder + L"\\devtools-cmd.json";
+				std::string text;
+				{
+					std::ifstream in(path, std::ios::binary);
+					if (!in) continue;
+					text.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+				}
+				_wremove(path.c_str());
+				page->Dispatcher->RunAsync(CoreDispatcherPriority::Normal, ref new DispatchedHandler([weakThis, text]() {
+					auto inner = weakThis.Resolve<CartouchePage>();
+					if (inner != nullptr) inner->DevtoolsCommand(text);
+				}));
 			}
 		});
 	}
@@ -1218,7 +1270,41 @@ void CartouchePage::WirePreview() {
 		}
 	});
 	core->AddScriptToExecuteOnDocumentCreatedAsync(ref new String(PREVIEW_GATE));
+	{
+		WIN32_FILE_ATTRIBUTE_DATA found;
+		bool webgpu = GetFileAttributesExW((std::wstring(Windows::Storage::ApplicationData::Current->LocalFolder->Path->Data()) + L"\\preview-webgpu").c_str(), GetFileExInfoStandard, &found) != 0;
+		Diag(webgpu ? L"preview webgpu (no timestamps)" : L"preview webgl2");
+		core->AddScriptToExecuteOnDocumentCreatedAsync(ref new String(webgpu ? PREVIEW_WEBGPU_NO_TIMESTAMPS : PREVIEW_NO_WEBGPU));
+	}
 	if (diagOn) core->AddScriptToExecuteOnDocumentCreatedAsync(ref new String(PREVIEW_DIAG));
+}
+
+// One DevTools protocol call (diagnostics only): { id, target: "game" | "interface", method, params }.
+void CartouchePage::DevtoolsCommand(const std::string& text) {
+	JsonObject^ command;
+	if (!JsonObject::TryParse(ref new String(Utils::NarrowToWideString(text).c_str()), &command)) return;
+	std::wstring id(command->GetNamedString(L"id", L"0")->Data());
+	for (auto& c : id) if (!iswalnum(c)) c = L'_';
+	auto answer = [id](String^ result) {
+		std::ofstream out(diagFolder + L"\\devtools-" + id + L".json", std::ios::binary);
+		out << Utils::PlatformStringToStdString(result);
+	};
+	auto core = command->GetNamedString(L"target", L"game") == L"interface" ? Web->CoreWebView2 : Preview->CoreWebView2;
+	if (core == nullptr) return answer(L"{\"error\":\"no view\"}");
+	String^ params = command->HasKey(L"params") ? command->GetNamedValue(L"params")->Stringify() : L"{}";
+	try {
+		create_task(core->CallDevToolsProtocolMethodAsync(command->GetNamedString(L"method", L""), params)).then([answer](task<String^> done) {
+			try {
+				answer(done.get());
+			}
+			catch (Exception^ e) {
+				answer(L"{\"error\":" + JsonValue::CreateStringValue(e->Message)->Stringify() + L"}");
+			}
+		});
+	}
+	catch (Exception^ e) {
+		answer(L"{\"error\":" + JsonValue::CreateStringValue(e->Message)->Stringify() + L"}");
+	}
 }
 
 // A view drawn again from nothing: hidden, then shown once laid out (after the GPU process came back).

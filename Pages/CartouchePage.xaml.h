@@ -57,6 +57,7 @@ namespace moonlight_xbox_dx {
 		void PreviewPlaying(bool on);
 		void PreviewEvent(Platform::String^ kind, Platform::String^ detail);
 		void PreviewLayout();
+		void DevtoolsCommand(const std::string& text);
 		void Redraw(Windows::UI::Xaml::UIElement^ view);
 		// Where the page's stage is (previewPlace, in this page's units) and whether it shows there.
 		double placeX = 0, placeY = 0, placeWidth = 1, placeHeight = 1;
