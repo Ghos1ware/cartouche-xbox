@@ -345,6 +345,9 @@ namespace {
 }
 
 CartouchePage::CartouchePage() {
+	// Before any WebView2 starts: what they show where the page has not drawn (a game loading, a tile the
+	// GPU dropped when memory runs short) is Cartouche's dark, not white.
+	SetEnvironmentVariableW(L"WEBVIEW2_DEFAULT_BACKGROUND_COLOR", L"FF07060D");
 	InitializeComponent();
 	state = GetApplicationState();
 	// A stream goes back here: the page, its interface and its state stay as they were.
@@ -405,8 +408,8 @@ void CartouchePage::OnNavigatedFrom(NavigationEventArgs^ e) {
 	deviceWatcherHelper->Reset();
 	discoveredDevices->Clear();
 	// While a game streams, the interface sleeps (memory and GPU go to the stream), the Studio's preview with it.
-	Web->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
 	if (previewPlaying.load()) PreviewPlaying(false);
+	Web->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
 	Preview->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
 	if (Preview->CoreWebView2 != nullptr) {
 		create_task(Preview->CoreWebView2->TrySuspendAsync()).then([](task<bool> t) {
@@ -1050,6 +1053,7 @@ void CartouchePage::WirePreview() {
 		page->previewLoaded = args->IsSuccess;
 		// Played across a reload (the agent's change): the game keeps the controller.
 		if (page->previewPlaying.load()) sender->ExecuteScriptAsync(L"window.__cartouchePlaying = true");
+		page->PreviewLayout();
 		page->PreviewEvent(args->IsSuccess ? L"load" : L"failed", args->IsSuccess ? nullptr : args->WebErrorStatus.ToString());
 	});
 	// The answers of the page's calls into the game (previewEval), back to the page as events.
@@ -1067,21 +1071,82 @@ void CartouchePage::WirePreview() {
 		if (text == nullptr || text->Length() > 4 * 1024 * 1024 || !JsonObject::TryParse(text, &answer) || !answer->HasKey(L"cartouchePreview")) return;
 		page->Event(L"previewResult", answer);
 	});
+	// The game's page died (out of memory, most often): the Studio gets the controller back, the game loads again.
+	core->ProcessFailed += ref new TypedEventHandler<CoreWebView2^, CoreWebView2ProcessFailedEventArgs^>([weakThis](CoreWebView2^ sender, CoreWebView2ProcessFailedEventArgs^ args) {
+		auto page = weakThis.Resolve<CartouchePage>();
+		if (page == nullptr || page->previewOrigin == nullptr) return;
+		auto kind = args->ProcessFailedKind;
+		if (kind != CoreWebView2ProcessFailedKind::RenderProcessExited && kind != CoreWebView2ProcessFailedKind::RenderProcessUnresponsive && kind != CoreWebView2ProcessFailedKind::FrameRenderProcessExited) return;
+		page->PreviewPlaying(false);
+		page->previewLoaded = false;
+		page->PreviewLayout();
+		try {
+			sender->Reload();
+		}
+		catch (...) {
+		}
+	});
 	core->AddScriptToExecuteOnDocumentCreatedAsync(ref new String(PREVIEW_GATE));
+}
+
+// Played (« Jouer »): the game on the whole screen, the interface hidden behind it (its GPU tiles and
+// memory go to the game). Otherwise: where the page's stage is, once the game has drawn (until then the
+// page's own stage shows, not an empty view).
+void CartouchePage::PreviewLayout() {
+	bool open = previewOrigin != nullptr;
+	if (open && previewPlaying.load()) {
+		Preview->Margin = Thickness(0, 0, 0, 0);
+		Preview->Width = ActualWidth > 1 ? ActualWidth : 1;
+		Preview->Height = ActualHeight > 1 ? ActualHeight : 1;
+		Preview->Visibility = Windows::UI::Xaml::Visibility::Visible;
+		Web->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
+		return;
+	}
+	Web->Visibility = Windows::UI::Xaml::Visibility::Visible;
+	Preview->Margin = Thickness(placeX, placeY, 0, 0);
+	Preview->Width = placeWidth > 1 ? placeWidth : 1;
+	Preview->Height = placeHeight > 1 ? placeHeight : 1;
+	bool shown = open && placeVisible && previewLoaded && placeWidth > 2 && placeHeight > 2;
+	Preview->Visibility = shown ? Windows::UI::Xaml::Visibility::Visible : Windows::UI::Xaml::Visibility::Collapsed;
 }
 
 void CartouchePage::PreviewPlaying(bool on) {
 	if (previewPlaying.exchange(on) == on) return;
 	if (Preview->CoreWebView2 != nullptr) Preview->CoreWebView2->ExecuteScriptAsync(on ? L"window.__cartouchePlaying = true" : L"window.__cartouchePlaying = false");
+	int turn = ++playTurn;
+	PreviewLayout();
+	WeakReference weakThis(this);
 	if (!on) {
+		PlayHint->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
 		Web->Focus(Windows::UI::Xaml::FocusState::Programmatic);
+		// Shown again this very moment: focused once it is laid out too.
+		Dispatcher->RunAsync(CoreDispatcherPriority::Low, ref new DispatchedHandler([weakThis]() {
+			auto page = weakThis.Resolve<CartouchePage>();
+			if (page != nullptr && !page->previewPlaying.load()) page->Web->Focus(Windows::UI::Xaml::FocusState::Programmatic);
+		}));
 		PreviewEvent(L"blur", nullptr);
 		return;
 	}
 	Preview->Focus(Windows::UI::Xaml::FocusState::Programmatic);
+	Dispatcher->RunAsync(CoreDispatcherPriority::Low, ref new DispatchedHandler([weakThis]() {
+		auto page = weakThis.Resolve<CartouchePage>();
+		if (page != nullptr && page->previewPlaying.load()) page->Preview->Focus(Windows::UI::Xaml::FocusState::Programmatic);
+	}));
 	PreviewEvent(L"focus", nullptr);
+	// How to come back, a moment over the game.
+	if (PlayHintText->Text->Length() > 0) {
+		PlayHint->Visibility = Windows::UI::Xaml::Visibility::Visible;
+		create_task([weakThis, turn]() {
+			Sleep(4000);
+			auto page = weakThis.Resolve<CartouchePage>();
+			if (page == nullptr) return;
+			page->Dispatcher->RunAsync(CoreDispatcherPriority::Normal, ref new DispatchedHandler([weakThis, turn]() {
+				auto inner = weakThis.Resolve<CartouchePage>();
+				if (inner != nullptr && inner->playTurn == turn) inner->PlayHint->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
+			}));
+		});
+	}
 	// View: back to the Studio, whatever the game does with it (read here: the game has the focus).
-	WeakReference weakThis(this);
 	create_task([weakThis]() {
 		bool armed = false;
 		while (true) {
@@ -1129,10 +1194,10 @@ task<IJsonValue^> CartouchePage::PreviewCall(const std::wstring& name, JsonArray
 	auto core = Preview->CoreWebView2;
 	if (name == L"previewClose") {
 		PreviewPlaying(false);
-		Preview->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
 		previewOrigin = nullptr;
 		previewFingerprint = nullptr;
 		previewLoaded = false;
+		PreviewLayout();
 		if (core != nullptr) core->Navigate(L"about:blank");
 		return none();
 	}
@@ -1140,18 +1205,21 @@ task<IJsonValue^> CartouchePage::PreviewCall(const std::wstring& name, JsonArray
 	// this page's own (a TV draws the page at its own scale, not one page pixel per XAML unit).
 	if (name == L"previewPlace") {
 		double x = args->GetNumberAt(0), y = args->GetNumberAt(1), width = args->GetNumberAt(2), height = args->GetNumberAt(3);
-		if (args->Size > 7 && args->GetNumberAt(6) > 0 && args->GetNumberAt(7) > 0 && Web->ActualWidth > 0 && Web->ActualHeight > 0) {
-			double sx = Web->ActualWidth / args->GetNumberAt(6), sy = Web->ActualHeight / args->GetNumberAt(7);
+		// The page fills this one (Web): its size is this page's, even while Web hides behind the game.
+		if (args->Size > 7 && args->GetNumberAt(6) > 0 && args->GetNumberAt(7) > 0 && ActualWidth > 0 && ActualHeight > 0) {
+			double sx = ActualWidth / args->GetNumberAt(6), sy = ActualHeight / args->GetNumberAt(7);
 			x *= sx;
 			width *= sx;
 			y *= sy;
 			height *= sy;
 		}
-		bool visible = args->GetBooleanAt(4) && previewOrigin != nullptr && width > 2 && height > 2;
-		Preview->Margin = Thickness(x, y, 0, 0);
-		Preview->Width = width > 1 ? width : 1;
-		Preview->Height = height > 1 ? height : 1;
-		Preview->Visibility = visible ? Windows::UI::Xaml::Visibility::Visible : Windows::UI::Xaml::Visibility::Collapsed;
+		placeX = x;
+		placeY = y;
+		placeWidth = width;
+		placeHeight = height;
+		placeVisible = args->GetBooleanAt(4);
+		// While played, the game keeps the whole screen: the stage's place waits for its return.
+		PreviewLayout();
 		if (core != nullptr && args->Size > 5) core->IsMuted = args->GetBooleanAt(5);
 		return none();
 	}
@@ -1169,6 +1237,7 @@ task<IJsonValue^> CartouchePage::PreviewCall(const std::wstring& name, JsonArray
 	}
 	// [true]: the game takes the controller (« Jouer »); [false]: the Studio has it again.
 	if (name == L"previewFocus") {
+		if (args->Size > 1 && args->GetAt(1)->ValueType == JsonValueType::String) PlayHintText->Text = args->GetStringAt(1);
 		PreviewPlaying(args->Size > 0 && args->GetBooleanAt(0));
 		return none();
 	}

@@ -56,6 +56,11 @@ namespace moonlight_xbox_dx {
 		void WirePreview();
 		void PreviewPlaying(bool on);
 		void PreviewEvent(Platform::String^ kind, Platform::String^ detail);
+		void PreviewLayout();
+		// Where the page's stage is (previewPlace, in this page's units) and whether it shows there.
+		double placeX = 0, placeY = 0, placeWidth = 1, placeHeight = 1;
+		bool placeVisible = false;
+		int playTurn = 0;
 		Platform::String^ previewOrigin;
 		Platform::String^ previewFingerprint;
 		bool previewWired = false;
