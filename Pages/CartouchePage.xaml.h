@@ -62,6 +62,9 @@ namespace moonlight_xbox_dx {
 		double placeX = 0, placeY = 0, placeWidth = 1, placeHeight = 1;
 		bool placeVisible = false;
 		int playTurn = 0;
+		// The preview's GPU crashes, and when the last was (a second one soon after: no more reloading).
+		int previewCrashes = 0;
+		ULONGLONG previewCrashAt = 0;
 		Platform::String^ previewOrigin;
 		Platform::String^ previewFingerprint;
 		bool previewWired = false;

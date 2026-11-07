@@ -372,6 +372,9 @@ namespace {
 
 	const wchar_t* PREVIEW_GATE = LR"JS((() => {
   try { navigator.gamepadInputEmulation = "gamepad"; } catch (e) {}
+  // No WebGPU here: on the console, a game drawing with it (the kit's three/webgpu) lost the graphics
+  // device as it loaded, the GPU process with it, the interface's included. Without it, WebGL 2.
+  try { Object.defineProperty(Navigator.prototype, "gpu", { configurable: true, get: () => undefined }); } catch (e) {}
   const real = navigator.getGamepads ? navigator.getGamepads.bind(navigator) : () => [];
   Object.defineProperty(navigator, "getGamepads", { configurable: true, value: () => (window.__cartouchePlaying ? real() : [null, null, null, null]) });
 })();)JS";
@@ -1150,6 +1153,16 @@ void CartouchePage::WirePreview() {
 		page->PreviewPlaying(false);
 		page->previewLoaded = false;
 		page->PreviewLayout();
+		// Once: a game that brings the graphics device down again within the minute is not loaded a third
+		// time (the screen would blink on and on); the page falls back to the end-of-turn version.
+		auto now = GetTickCount64();
+		page->previewCrashes = now - page->previewCrashAt < 60000 ? page->previewCrashes + 1 : 1;
+		page->previewCrashAt = now;
+		if (page->previewCrashes > 1) {
+			Diag(L"preview gives up");
+			page->PreviewEvent(L"failed", L"La console manque de mémoire graphique pour ce jeu");
+			return;
+		}
 		try {
 			sender->Reload();
 		}
