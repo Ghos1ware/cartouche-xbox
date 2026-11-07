@@ -337,6 +337,39 @@ namespace {
 
 	// In the preview's documents: the controller is the game's only while it is played (« Jouer »);
 	// meanwhile it drives the Studio, and the game must not hear those presses.
+	// Diagnostics (Dev Mode, read through the Device Portal): a file « diagnostics-on » in LocalState makes
+	// the app and its page write what they see to LocalState\diagnostics.log. Nothing leaves the console.
+	bool diagOn = false;
+	std::wstring diagPath;
+	std::mutex diagLock;
+	void Diag(const std::wstring& line) {
+		if (!diagOn) return;
+		std::lock_guard<std::mutex> hold(diagLock);
+		std::ofstream out(diagPath, std::ios::app | std::ios::binary);
+		auto text = Utils::PlatformStringToStdString(ref new String(line.c_str()));
+		out << GetTickCount64() << " " << text << "\n";
+	}
+	const wchar_t* FailedKind(CoreWebView2ProcessFailedKind kind) {
+		switch (kind) {
+		case CoreWebView2ProcessFailedKind::BrowserProcessExited: return L"browser-exited";
+		case CoreWebView2ProcessFailedKind::RenderProcessExited: return L"render-exited";
+		case CoreWebView2ProcessFailedKind::RenderProcessUnresponsive: return L"render-unresponsive";
+		case CoreWebView2ProcessFailedKind::FrameRenderProcessExited: return L"frame-render-exited";
+		case CoreWebView2ProcessFailedKind::GpuProcessExited: return L"gpu-exited";
+		default: return L"other";
+		}
+	}
+	void DiagFailed(const wchar_t* view, CoreWebView2ProcessFailedEventArgs^ args) {
+		if (!diagOn) return;
+		std::wstring line = std::wstring(L"failed ") + view + L" " + FailedKind(args->ProcessFailedKind);
+		try {
+			line += L" reason=" + std::to_wstring(static_cast<int>(args->Reason)) + L" exit=" + std::to_wstring(args->ExitCode) + L" " + std::wstring(args->ProcessDescription != nullptr ? args->ProcessDescription->Data() : L"");
+		}
+		catch (...) {
+		}
+		Diag(line);
+	}
+
 	const wchar_t* PREVIEW_GATE = LR"JS((() => {
   try { navigator.gamepadInputEmulation = "gamepad"; } catch (e) {}
   const real = navigator.getGamepads ? navigator.getGamepads.bind(navigator) : () => [];
@@ -471,6 +504,27 @@ void CartouchePage::Start() {
 	// WebView's browser starts, before the first EnsureCoreWebView2Async.
 	SetEnvironmentVariableW(L"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", L"--autoplay-policy=no-user-gesture-required");
 	WeakReference weakThis(this);
+	{
+		std::wstring folder(Windows::Storage::ApplicationData::Current->LocalFolder->Path->Data());
+		WIN32_FILE_ATTRIBUTE_DATA found;
+		diagOn = GetFileAttributesExW((folder + L"\\diagnostics-on").c_str(), GetFileExInfoStandard, &found) != 0;
+		diagPath = folder + L"\\diagnostics.log";
+	}
+	if (diagOn) {
+		auto version = Windows::ApplicationModel::Package::Current->Id->Version;
+		Diag(L"start " + std::to_wstring(version.Major) + L"." + std::to_wstring(version.Minor) + L"." + std::to_wstring(version.Build) + L" size=" + std::to_wstring(static_cast<int>(ActualWidth)) + L"x" + std::to_wstring(static_cast<int>(ActualHeight)));
+		create_task([weakThis]() {
+			while (true) {
+				Sleep(5000);
+				auto page = weakThis.Resolve<CartouchePage>();
+				if (page == nullptr) break;
+				std::wstring line = L"app mem=" + std::to_wstring(Windows::System::MemoryManager::AppMemoryUsage / 1048576) + L"MB limit=" + std::to_wstring(Windows::System::MemoryManager::AppMemoryUsageLimit / 1048576) + L"MB level=" + std::to_wstring(static_cast<int>(Windows::System::MemoryManager::AppMemoryUsageLevel));
+				line += L" preview=" + std::wstring(page->previewOrigin != nullptr ? L"open" : L"closed") + L" loaded=" + (page->previewLoaded ? L"1" : L"0") + L" playing=" + (page->previewPlaying.load() ? L"1" : L"0");
+				page = nullptr;
+				Diag(line);
+			}
+		});
+	}
 	create_task(Web->EnsureCoreWebView2Async()).then([weakThis](task<void> t) {
 		try {
 			t.get();
@@ -493,6 +547,7 @@ void CartouchePage::Start() {
 		core->WebMessageReceived += ref new TypedEventHandler<CoreWebView2^, CoreWebView2WebMessageReceivedEventArgs^>(page, &CartouchePage::OnWebMessage);
 		core->NavigationStarting += ref new TypedEventHandler<CoreWebView2^, CoreWebView2NavigationStartingEventArgs^>(page, &CartouchePage::OnNavigationStarting);
 		core->NewWindowRequested += ref new TypedEventHandler<CoreWebView2^, CoreWebView2NewWindowRequestedEventArgs^>(page, &CartouchePage::OnNewWindow);
+		core->ProcessFailed += ref new TypedEventHandler<CoreWebView2^, CoreWebView2ProcessFailedEventArgs^>([](CoreWebView2^ sender, CoreWebView2ProcessFailedEventArgs^ args) { DiagFailed(L"web", args); });
 		// The page reads the controller only while its document has the focus (input.ts): the
 		// WebView takes it as soon as a page has loaded, and again if XAML ever moves it away.
 		core->NavigationCompleted += ref new TypedEventHandler<CoreWebView2^, CoreWebView2NavigationCompletedEventArgs^>([weakThis](CoreWebView2^ sender, CoreWebView2NavigationCompletedEventArgs^ args) {
@@ -687,8 +742,14 @@ task<IJsonValue^> CartouchePage::Call(String^ method, JsonArray^ args) {
 		// What this app can do beyond Android's calls: the page asks before it uses one.
 		auto features = ref new JsonArray();
 		features->Append(JsonValue::CreateStringValue(L"preview"));
+		if (diagOn) features->Append(JsonValue::CreateStringValue(L"diag"));
 		hello->Insert(L"features", features);
 		return value(hello);
+	}
+	// [line]: the page's own diagnostics (diagnostics-on), to the same log.
+	if (name == L"diag") {
+		if (args->Size > 0 && args->GetAt(0)->ValueType == JsonValueType::String) Diag(L"page " + std::wstring(args->GetStringAt(0)->Data()).substr(0, 4000));
+		return value(JsonValue::CreateNullValue());
 	}
 	if (name == L"computers") return value(Computers());
 	if (name == L"addComputer") {
@@ -1073,6 +1134,7 @@ void CartouchePage::WirePreview() {
 	});
 	// The game's page died (out of memory, most often): the Studio gets the controller back, the game loads again.
 	core->ProcessFailed += ref new TypedEventHandler<CoreWebView2^, CoreWebView2ProcessFailedEventArgs^>([weakThis](CoreWebView2^ sender, CoreWebView2ProcessFailedEventArgs^ args) {
+		DiagFailed(L"preview", args);
 		auto page = weakThis.Resolve<CartouchePage>();
 		if (page == nullptr || page->previewOrigin == nullptr) return;
 		auto kind = args->ProcessFailedKind;
