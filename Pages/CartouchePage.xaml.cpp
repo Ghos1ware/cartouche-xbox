@@ -33,6 +33,7 @@ extern "C" {
 #include <cwctype>
 #include <fstream>
 #include <regex>
+#include <sstream>
 #include <stdexcept>
 
 using namespace moonlight_xbox_dx;
@@ -279,6 +280,68 @@ namespace {
 			}
 		}
 	};
+
+	// ---- Cartouche Studio's live preview ----
+
+	// An IPv4 address of a home network (10/8, 172.16/12, 192.168/16): the PC the TV sits beside.
+	bool PrivateIpv4(const std::wstring& host) {
+		int parts[4];
+		wchar_t tail = 0;
+		if (swscanf_s(host.c_str(), L"%d.%d.%d.%d%lc", &parts[0], &parts[1], &parts[2], &parts[3], &tail, 1) != 4) return false;
+		for (int part : parts)
+			if (part < 0 || part > 255) return false;
+		return parts[0] == 10 || (parts[0] == 172 && parts[1] >= 16 && parts[1] <= 31) || (parts[0] == 192 && parts[1] == 168);
+	}
+
+	// "https://192.168.1.20:47976" of an address the preview may load: https, a home address, a port.
+	String^ PreviewOriginOf(String^ address) {
+		Uri^ uri;
+		try {
+			uri = ref new Uri(address);
+		}
+		catch (...) {
+			throw std::runtime_error("Adresse d'aperçu invalide");
+		}
+		if (uri->SchemeName != L"https" || !PrivateIpv4(uri->Host->Data()) || uri->Port <= 0) throw std::runtime_error("L'aperçu vient d'un PC de ce réseau, en https");
+		return L"https://" + uri->Host + L":" + uri->Port.ToString();
+	}
+
+	bool SameOrigin(String^ address, String^ origin) {
+		if (address == nullptr || origin == nullptr) return false;
+		try {
+			auto uri = ref new Uri(address);
+			return (L"https://" + uri->Host + L":" + uri->Port.ToString()) == origin && uri->SchemeName == L"https";
+		}
+		catch (...) {
+			return false;
+		}
+	}
+
+	// SHA-256 of a PEM certificate, hex in capitals: what the PC's lan-preview.ts gives as its fingerprint.
+	String^ Fingerprint(String^ pem) {
+		std::wstring text(pem->Data());
+		std::wstring body;
+		std::wistringstream lines(text);
+		std::wstring line;
+		while (std::getline(lines, line)) {
+			if (line.find(L"-----") != std::wstring::npos) continue;
+			for (wchar_t c : line)
+				if (!std::iswspace(c)) body += c;
+		}
+		auto der = CryptographicBuffer::DecodeFromBase64String(ref new String(body.c_str()));
+		auto sha = Windows::Security::Cryptography::Core::HashAlgorithmProvider::OpenAlgorithm(Windows::Security::Cryptography::Core::HashAlgorithmNames::Sha256);
+		std::wstring hex(CryptographicBuffer::EncodeToHexString(sha->HashData(der))->Data());
+		for (auto& c : hex) c = static_cast<wchar_t>(std::towupper(c));
+		return ref new String(hex.c_str());
+	}
+
+	// In the preview's documents: the controller is the game's only while it is played (« Jouer »);
+	// meanwhile it drives the Studio, and the game must not hear those presses.
+	const wchar_t* PREVIEW_GATE = LR"JS((() => {
+  try { navigator.gamepadInputEmulation = "gamepad"; } catch (e) {}
+  const real = navigator.getGamepads ? navigator.getGamepads.bind(navigator) : () => [];
+  Object.defineProperty(navigator, "getGamepads", { configurable: true, value: () => (window.__cartouchePlaying ? real() : [null, null, null, null]) });
+})();)JS";
 }
 
 CartouchePage::CartouchePage() {
@@ -304,6 +367,7 @@ void CartouchePage::OnNavigatedTo(NavigationEventArgs^ e) {
 	Windows::UI::ViewManagement::ApplicationView::GetForCurrentView()->SetDesiredBoundsMode(Windows::UI::ViewManagement::ApplicationViewBoundsMode::UseVisible);
 	backToken = SystemNavigationManager::GetForCurrentView()->BackRequested += ref new EventHandler<BackRequestedEventArgs^>(this, &CartouchePage::OnBackRequested);
 	Web->Visibility = Windows::UI::Xaml::Visibility::Visible;
+	if (Preview->CoreWebView2 != nullptr) Preview->CoreWebView2->Resume();
 	if (Web->CoreWebView2 != nullptr) {
 		Web->CoreWebView2->Resume();
 		// Back from a stream or Moonlight's pages: the controller is the page's again.
@@ -340,8 +404,19 @@ void CartouchePage::OnNavigatedFrom(NavigationEventArgs^ e) {
 	polling.store(false);
 	deviceWatcherHelper->Reset();
 	discoveredDevices->Clear();
-	// While a game streams, the interface sleeps (memory and GPU go to the stream).
+	// While a game streams, the interface sleeps (memory and GPU go to the stream), the Studio's preview with it.
 	Web->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
+	if (previewPlaying.load()) PreviewPlaying(false);
+	Preview->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
+	if (Preview->CoreWebView2 != nullptr) {
+		create_task(Preview->CoreWebView2->TrySuspendAsync()).then([](task<bool> t) {
+			try {
+				t.get();
+			}
+			catch (...) {
+			}
+		});
+	}
 	if (Web->CoreWebView2 != nullptr) {
 		create_task(Web->CoreWebView2->TrySuspendAsync()).then([](task<bool> t) {
 			try {
@@ -423,10 +498,10 @@ void CartouchePage::Start() {
 		});
 		page->Web->LostFocus += ref new RoutedEventHandler([weakThis](Object^ sender, RoutedEventArgs^ args) {
 			auto inner = weakThis.Resolve<CartouchePage>();
-			if (inner == nullptr || inner->Frame == nullptr || inner->Frame->Content != inner) return;
+			if (inner == nullptr || inner->Frame == nullptr || inner->Frame->Content != inner || inner->previewPlaying.load()) return;
 			inner->Dispatcher->RunAsync(CoreDispatcherPriority::Low, ref new DispatchedHandler([weakThis]() {
 				auto again = weakThis.Resolve<CartouchePage>();
-				if (again != nullptr && again->Frame != nullptr && again->Frame->Content == again) again->Web->Focus(Windows::UI::Xaml::FocusState::Programmatic);
+				if (again != nullptr && again->Frame != nullptr && again->Frame->Content == again && !again->previewPlaying.load()) again->Web->Focus(Windows::UI::Xaml::FocusState::Programmatic);
 			}));
 		});
 		page->Web->Focus(Windows::UI::Xaml::FocusState::Programmatic);
@@ -599,11 +674,17 @@ task<IJsonValue^> CartouchePage::Call(String^ method, JsonArray^ args) {
 	std::wstring name(method->Data());
 	auto value = [](IJsonValue^ v) { return task_from_result(v); };
 
+	// Cartouche Studio's live preview: its own calls (PreviewCall).
+	if (name.rfind(L"preview", 0) == 0) return PreviewCall(name, args);
 	if (name == L"hello") {
 		auto hello = ref new JsonObject();
 		auto version = Windows::ApplicationModel::Package::Current->Id->Version;
 		hello->Insert(L"version", JsonValue::CreateStringValue(version.Major + L"." + version.Minor + L"." + version.Build));
 		hello->Insert(L"computers", Computers());
+		// What this app can do beyond Android's calls: the page asks before it uses one.
+		auto features = ref new JsonArray();
+		features->Append(JsonValue::CreateStringValue(L"preview"));
+		hello->Insert(L"features", features);
 		return value(hello);
 	}
 	if (name == L"computers") return value(Computers());
@@ -918,4 +999,192 @@ void CartouchePage::TryAddDiscoveredHost(DeviceInformation^ info) {
 		catch (...) {
 		}
 	}).then([key, inFlight]() { inFlight->erase(key); }, task_continuation_context::use_current());
+}
+
+// ---- Cartouche Studio's live preview: the page's stage, filled by the game the PC serves ----
+
+void CartouchePage::PreviewEvent(String^ kind, String^ detail) {
+	auto data = ref new JsonObject();
+	data->Insert(L"dock", JsonValue::CreateStringValue(L"xbox-preview"));
+	data->Insert(L"kind", JsonValue::CreateStringValue(kind));
+	if (kind == L"load") {
+		data->Insert(L"url", JsonValue::CreateStringValue(Preview->CoreWebView2 != nullptr ? Preview->CoreWebView2->Source : L""));
+		data->Insert(L"perf", JsonValue::CreateBooleanValue(false));
+	}
+	if (detail != nullptr) data->Insert(L"detail", JsonValue::CreateStringValue(detail));
+	Event(L"preview", data);
+}
+
+void CartouchePage::WirePreview() {
+	if (previewWired) return;
+	previewWired = true;
+	auto core = Preview->CoreWebView2;
+	core->Settings->IsStatusBarEnabled = false;
+	core->Settings->AreDefaultContextMenusEnabled = false;
+	core->Settings->IsZoomControlEnabled = false;
+#if !defined(_DEBUG)
+	core->Settings->AreDevToolsEnabled = false;
+#endif
+	WeakReference weakThis(this);
+	// The PC's own certificate, and only it: the fingerprint the page got through the account.
+	core->ServerCertificateErrorDetected += ref new TypedEventHandler<CoreWebView2^, CoreWebView2ServerCertificateErrorDetectedEventArgs^>([weakThis](CoreWebView2^ sender, CoreWebView2ServerCertificateErrorDetectedEventArgs^ args) {
+		auto page = weakThis.Resolve<CartouchePage>();
+		bool pinned = false;
+		try {
+			pinned = page != nullptr && page->previewFingerprint != nullptr && SameOrigin(args->RequestUri, page->previewOrigin) && Fingerprint(args->ServerCertificate->ToPemEncoding()) == page->previewFingerprint;
+		}
+		catch (...) {
+		}
+		args->Action = pinned ? CoreWebView2ServerCertificateErrorAction::AlwaysAllow : CoreWebView2ServerCertificateErrorAction::Cancel;
+	});
+	// It stays on the PC's preview: anything else is refused.
+	core->NavigationStarting += ref new TypedEventHandler<CoreWebView2^, CoreWebView2NavigationStartingEventArgs^>([weakThis](CoreWebView2^ sender, CoreWebView2NavigationStartingEventArgs^ args) {
+		auto page = weakThis.Resolve<CartouchePage>();
+		if (args->Uri == L"about:blank") return;
+		if (page == nullptr || !SameOrigin(args->Uri, page->previewOrigin)) args->Cancel = true;
+	});
+	core->NewWindowRequested += ref new TypedEventHandler<CoreWebView2^, CoreWebView2NewWindowRequestedEventArgs^>([](CoreWebView2^ sender, CoreWebView2NewWindowRequestedEventArgs^ args) { args->Handled = true; });
+	core->NavigationCompleted += ref new TypedEventHandler<CoreWebView2^, CoreWebView2NavigationCompletedEventArgs^>([weakThis](CoreWebView2^ sender, CoreWebView2NavigationCompletedEventArgs^ args) {
+		auto page = weakThis.Resolve<CartouchePage>();
+		if (page == nullptr || sender->Source == L"about:blank") return;
+		page->previewLoaded = args->IsSuccess;
+		// Played across a reload (the agent's change): the game keeps the controller.
+		if (page->previewPlaying.load()) sender->ExecuteScriptAsync(L"window.__cartouchePlaying = true");
+		page->PreviewEvent(args->IsSuccess ? L"load" : L"failed", args->IsSuccess ? nullptr : args->WebErrorStatus.ToString());
+	});
+	// The answers of the page's calls into the game (previewEval), back to the page as events.
+	core->WebMessageReceived += ref new TypedEventHandler<CoreWebView2^, CoreWebView2WebMessageReceivedEventArgs^>([weakThis](CoreWebView2^ sender, CoreWebView2WebMessageReceivedEventArgs^ args) {
+		auto page = weakThis.Resolve<CartouchePage>();
+		if (page == nullptr || !SameOrigin(args->Source, page->previewOrigin)) return;
+		String^ text;
+		try {
+			text = args->TryGetWebMessageAsString();
+		}
+		catch (...) {
+			return;
+		}
+		JsonObject^ answer;
+		if (text == nullptr || text->Length() > 4 * 1024 * 1024 || !JsonObject::TryParse(text, &answer) || !answer->HasKey(L"cartouchePreview")) return;
+		page->Event(L"previewResult", answer);
+	});
+	core->AddScriptToExecuteOnDocumentCreatedAsync(ref new String(PREVIEW_GATE));
+}
+
+void CartouchePage::PreviewPlaying(bool on) {
+	if (previewPlaying.exchange(on) == on) return;
+	if (Preview->CoreWebView2 != nullptr) Preview->CoreWebView2->ExecuteScriptAsync(on ? L"window.__cartouchePlaying = true" : L"window.__cartouchePlaying = false");
+	if (!on) {
+		Web->Focus(Windows::UI::Xaml::FocusState::Programmatic);
+		PreviewEvent(L"blur", nullptr);
+		return;
+	}
+	Preview->Focus(Windows::UI::Xaml::FocusState::Programmatic);
+	PreviewEvent(L"focus", nullptr);
+	// View: back to the Studio, whatever the game does with it (read here: the game has the focus).
+	WeakReference weakThis(this);
+	create_task([weakThis]() {
+		bool armed = false;
+		while (true) {
+			Sleep(60);
+			auto page = weakThis.Resolve<CartouchePage>();
+			if (page == nullptr || !page->previewPlaying.load()) break;
+			bool view = false;
+			for (auto pad : Windows::Gaming::Input::Gamepad::Gamepads)
+				if ((pad->GetCurrentReading().Buttons & Windows::Gaming::Input::GamepadButtons::View) == Windows::Gaming::Input::GamepadButtons::View) view = true;
+			// Pressed after « Jouer » began, not still held from before.
+			if (!view) armed = true;
+			else if (armed) {
+				page->Dispatcher->RunAsync(CoreDispatcherPriority::Normal, ref new DispatchedHandler([weakThis]() {
+					auto inner = weakThis.Resolve<CartouchePage>();
+					if (inner != nullptr) inner->PreviewPlaying(false);
+				}));
+				break;
+			}
+		}
+	});
+}
+
+task<IJsonValue^> CartouchePage::PreviewCall(const std::wstring& name, JsonArray^ args) {
+	WeakReference weakThis(this);
+	auto none = []() { return task_from_result<IJsonValue^>(JsonValue::CreateNullValue()); };
+	// [address, fingerprint]: the game the PC shares, loaded in the preview (its certificate pinned).
+	if (name == L"previewOpen") {
+		String^ address = args->GetStringAt(0);
+		String^ origin = PreviewOriginOf(address);
+		std::wstring pin(args->GetStringAt(1)->Data());
+		for (auto& c : pin) c = static_cast<wchar_t>(std::towupper(c));
+		if (pin.size() != 64) throw std::runtime_error("Empreinte du certificat invalide");
+		previewOrigin = origin;
+		previewFingerprint = ref new String(pin.c_str());
+		previewLoaded = false;
+		return create_task(Preview->EnsureCoreWebView2Async()).then([weakThis, address](task<void> ready) -> IJsonValue^ {
+			ready.get();
+			auto page = weakThis.Resolve<CartouchePage>();
+			if (page == nullptr) throw std::runtime_error("Cartouche s'est fermé");
+			page->WirePreview();
+			page->Preview->CoreWebView2->Navigate(address);
+			return JsonValue::CreateStringValue(L"xbox-preview");
+		}, task_continuation_context::use_current());
+	}
+	auto core = Preview->CoreWebView2;
+	if (name == L"previewClose") {
+		PreviewPlaying(false);
+		Preview->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
+		previewOrigin = nullptr;
+		previewFingerprint = nullptr;
+		previewLoaded = false;
+		if (core != nullptr) core->Navigate(L"about:blank");
+		return none();
+	}
+	// [x, y, width, height, visible, muted], in the page's pixels (the same as this page's).
+	if (name == L"previewPlace") {
+		double x = args->GetNumberAt(0), y = args->GetNumberAt(1), width = args->GetNumberAt(2), height = args->GetNumberAt(3);
+		bool visible = args->GetBooleanAt(4) && previewOrigin != nullptr && width > 2 && height > 2;
+		Preview->Margin = Thickness(x, y, 0, 0);
+		Preview->Width = width > 1 ? width : 1;
+		Preview->Height = height > 1 ? height : 1;
+		Preview->Visibility = visible ? Windows::UI::Xaml::Visibility::Visible : Windows::UI::Xaml::Visibility::Collapsed;
+		if (core != nullptr && args->Size > 5) core->IsMuted = args->GetBooleanAt(5);
+		return none();
+	}
+	if (core == nullptr || previewOrigin == nullptr) throw std::runtime_error("L'aperçu n'est pas ouvert");
+	if (name == L"previewStatus") {
+		auto status = ref new JsonObject();
+		status->Insert(L"loaded", JsonValue::CreateBooleanValue(previewLoaded));
+		status->Insert(L"url", JsonValue::CreateStringValue(core->Source));
+		status->Insert(L"perf", JsonValue::CreateBooleanValue(false));
+		return task_from_result<IJsonValue^>(status);
+	}
+	if (name == L"previewReload") {
+		core->Reload();
+		return none();
+	}
+	// [true]: the game takes the controller (« Jouer »); [false]: the Studio has it again.
+	if (name == L"previewFocus") {
+		PreviewPlaying(args->Size > 0 && args->GetBooleanAt(0));
+		return none();
+	}
+	// [id, body]: the body of an async function run in the game's page (the Studio's bridge calls,
+	// shared/dock-scripts.ts); its answer comes back as a « previewResult » event with that id.
+	if (name == L"previewEval") {
+		String^ id = static_cast<long long>(args->GetNumberAt(0)).ToString();
+		String^ body = args->GetStringAt(1);
+		String^ script = L"(async () => { const id = " + id + L"; const say = (answer) => window.chrome.webview.postMessage(JSON.stringify(Object.assign({ cartouchePreview: id }, answer))); try { const value = await (async () => { " + body +
+			L" })(); say({ ok: true, value: value === undefined ? null : value }); } catch (error) { say({ ok: false, error: String((error && error.message) || error) }); } })(); true";
+		core->ExecuteScriptAsync(script);
+		return none();
+	}
+	// The picture of the game, while HTML covers its place (a dialog): a JPEG data: URL.
+	if (name == L"previewCapture") {
+		auto stream = ref new Windows::Storage::Streams::InMemoryRandomAccessStream();
+		return create_task(core->CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat::Jpeg, stream)).then([stream]() {
+			stream->Seek(0);
+			auto reader = ref new Windows::Storage::Streams::DataReader(stream->GetInputStreamAt(0));
+			return create_task(reader->LoadAsync(static_cast<unsigned int>(stream->Size))).then([reader](unsigned int count) -> IJsonValue^ {
+				auto buffer = reader->ReadBuffer(count);
+				return JsonValue::CreateStringValue(L"data:image/jpeg;base64," + CryptographicBuffer::EncodeToBase64String(buffer));
+			});
+		});
+	}
+	throw std::runtime_error("Appel d'aperçu inconnu");
 }

@@ -49,6 +49,19 @@ namespace moonlight_xbox_dx {
 		void Event(Platform::String^ name, Windows::Data::Json::IJsonValue^ data);
 		void Post(Windows::Data::Json::JsonObject^ message);
 
+		// Cartouche Studio's live preview (Preview in the XAML): the game the PC serves on this network
+		// (its lan-preview.ts), its certificate pinned by the fingerprint the page got through the
+		// player's account. The controller stays the page's until « Jouer »; then View brings it back.
+		concurrency::task<Windows::Data::Json::IJsonValue^> PreviewCall(const std::wstring& name, Windows::Data::Json::JsonArray^ args);
+		void WirePreview();
+		void PreviewPlaying(bool on);
+		void PreviewEvent(Platform::String^ kind, Platform::String^ detail);
+		Platform::String^ previewOrigin;
+		Platform::String^ previewFingerprint;
+		bool previewWired = false;
+		bool previewLoaded = false;
+		std::atomic<bool> previewPlaying{ false };
+
 		MoonlightHost^ Host(Platform::String^ uuid);
 		Windows::Data::Json::JsonArray^ Computers();
 		void Watch(MoonlightHost^ host);
