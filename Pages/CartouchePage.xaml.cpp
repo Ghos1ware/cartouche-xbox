@@ -412,6 +412,15 @@ namespace {
   // No WebGPU here: on the console, a game drawing with it (the kit's three/webgpu) lost the graphics
   // device as it loaded, the GPU process with it, the interface's included. Without it, WebGL 2.
   try { Object.defineProperty(Navigator.prototype, "gpu", { configurable: true, get: () => undefined }); } catch (e) {}
+  // No GPU timers either (the kit times each frame with them): asked for on the console, the GPU process went down.
+  try {
+    const TIMERS = /disjoint_timer_query/i;
+    for (const C of [window.WebGLRenderingContext, window.WebGL2RenderingContext].filter(Boolean)) {
+      const get = C.prototype.getExtension, list = C.prototype.getSupportedExtensions;
+      C.prototype.getExtension = function (name) { return TIMERS.test(String(name)) ? null : get.call(this, name); };
+      C.prototype.getSupportedExtensions = function () { const all = list.call(this); return all ? all.filter((name) => !TIMERS.test(name)) : all; };
+    }
+  } catch (e) {}
   const real = navigator.getGamepads ? navigator.getGamepads.bind(navigator) : () => [];
   Object.defineProperty(navigator, "getGamepads", { configurable: true, value: () => (window.__cartouchePlaying ? real() : [null, null, null, null]) });
 })();)JS";
