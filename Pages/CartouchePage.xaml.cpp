@@ -16,6 +16,7 @@
 #include "HostSettingsPage.xaml.h"
 #include "StreamPage.xaml.h"
 #include "WebGamePage.xaml.h"
+#include "WebGpuGate.h"
 #include "State/MoonlightClient.h"
 #include "State/StreamConfiguration.h"
 #include "Utils.hpp"
@@ -408,26 +409,8 @@ namespace {
   }, 500);
 })();)JS";
 
-	// The game's WebGPU, either hidden (WebGL 2: safe, but three's WebGL path costs the console's CPU far more
-	// per draw), or kept without its timestamps (« timestamp-query », as the WebGL timers: they brought the
-	// console's GPU process down). Chosen by a « preview-webgpu » file in LocalState while it is tried.
+	// The game's WebGPU hidden (WebGL 2), with a « preview-webgl » file in LocalState (diagnostics: to compare).
 	const wchar_t* PREVIEW_NO_WEBGPU = LR"JS(try { Object.defineProperty(Navigator.prototype, "gpu", { configurable: true, get: () => undefined }); } catch (e) {})JS";
-	const wchar_t* PREVIEW_WEBGPU_NO_TIMESTAMPS = LR"JS((() => {
-  try {
-    const A = window.GPUAdapter && GPUAdapter.prototype;
-    if (!A) return;
-    const features = Object.getOwnPropertyDescriptor(A, "features");
-    Object.defineProperty(A, "features", { configurable: true, get() {
-      const kept = new Set([...features.get.call(this)].filter((name) => name !== "timestamp-query"));
-      return { has: (name) => kept.has(name), forEach: (each, self) => kept.forEach(each, self), keys: () => kept.keys(), values: () => kept.values(), entries: () => kept.entries(), [Symbol.iterator]: () => kept[Symbol.iterator](), get size() { return kept.size; } };
-    } });
-    const requestDevice = A.requestDevice;
-    A.requestDevice = function (descriptor) {
-      if (descriptor && descriptor.requiredFeatures) descriptor = Object.assign({}, descriptor, { requiredFeatures: [...descriptor.requiredFeatures].filter((name) => name !== "timestamp-query") });
-      return requestDevice.call(this, descriptor);
-    };
-  } catch (e) {}
-})();)JS";
 
 	const wchar_t* PREVIEW_GATE = LR"JS((() => {
   try { navigator.gamepadInputEmulation = "gamepad"; } catch (e) {}
@@ -571,7 +554,7 @@ void CartouchePage::Start() {
 	// press is a "user gesture", so the WebView may play sound without one. Read when the
 	// WebView's browser starts, before the first EnsureCoreWebView2Async.
 	WeakReference weakThis(this);
-	std::wstring browserArgs = L"--autoplay-policy=no-user-gesture-required";
+	std::wstring browserArgs = std::wstring(L"--autoplay-policy=no-user-gesture-required") + XBOX_WEBGPU_SWITCHES;
 	{
 		std::wstring folder(Windows::Storage::ApplicationData::Current->LocalFolder->Path->Data());
 		WIN32_FILE_ATTRIBUTE_DATA found;
@@ -1272,9 +1255,9 @@ void CartouchePage::WirePreview() {
 	core->AddScriptToExecuteOnDocumentCreatedAsync(ref new String(PREVIEW_GATE));
 	{
 		WIN32_FILE_ATTRIBUTE_DATA found;
-		bool webgpu = GetFileAttributesExW((std::wstring(Windows::Storage::ApplicationData::Current->LocalFolder->Path->Data()) + L"\\preview-webgpu").c_str(), GetFileExInfoStandard, &found) != 0;
-		Diag(webgpu ? L"preview webgpu (no timestamps)" : L"preview webgl2");
-		core->AddScriptToExecuteOnDocumentCreatedAsync(ref new String(webgpu ? PREVIEW_WEBGPU_NO_TIMESTAMPS : PREVIEW_NO_WEBGPU));
+		bool webgl = diagOn && GetFileAttributesExW((std::wstring(Windows::Storage::ApplicationData::Current->LocalFolder->Path->Data()) + L"\\preview-webgl").c_str(), GetFileExInfoStandard, &found) != 0;
+		Diag(webgl ? L"preview webgl2" : L"preview webgpu (d3d11, compatibility)");
+		core->AddScriptToExecuteOnDocumentCreatedAsync(ref new String(webgl ? PREVIEW_NO_WEBGPU : XBOX_WEBGPU_GATE));
 	}
 	if (diagOn) core->AddScriptToExecuteOnDocumentCreatedAsync(ref new String(PREVIEW_DIAG));
 }

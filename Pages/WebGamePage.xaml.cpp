@@ -8,6 +8,7 @@
 #include "pch.h"
 // clang-format on
 #include "WebGamePage.xaml.h"
+#include "WebGpuGate.h"
 #include "Utils.hpp"
 
 using namespace moonlight_xbox_dx;
@@ -50,10 +51,10 @@ void WebGamePage::OnNavigatedTo(NavigationEventArgs^ e) {
 		});
 		// Edge on Xbox drives a cursor with the controller unless the page takes the controller.
 		core->AddScriptToExecuteOnDocumentCreatedAsync(L"try { navigator.gamepadInputEmulation = 'gamepad'; } catch (e) {}");
-		// As in the Studio's preview (CartouchePage PREVIEW_GATE): no WebGPU and no GPU timers, which brought
-		// the console's GPU process down as a game made with Cartouche Studio loaded. WebGL 2 instead.
+		// As in the Studio's preview: WebGPU on D3D11 in compatibility (WebGpuGate.h), and no WebGL GPU timers,
+		// which brought the console's GPU process down as a game made with Cartouche Studio loaded.
+		core->AddScriptToExecuteOnDocumentCreatedAsync(ref new String(XBOX_WEBGPU_GATE));
 		core->AddScriptToExecuteOnDocumentCreatedAsync(LR"JS((() => {
-  try { Object.defineProperty(Navigator.prototype, "gpu", { configurable: true, get: () => undefined }); } catch (e) {}
   try {
     const TIMERS = /disjoint_timer_query/i;
     for (const C of [window.WebGLRenderingContext, window.WebGL2RenderingContext].filter(Boolean)) {
