@@ -10,7 +10,7 @@
   <Identity
     Name="Borderline.Cartouche"
 	Publisher="CN=Cartouche"
-    Version="0.1.18.0" />
+    Version="0.1.19.0" />
 
   <mp:PhoneIdentity PhoneProductId="0ffc9dbe-4176-4552-bca5-328384a9245f" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 

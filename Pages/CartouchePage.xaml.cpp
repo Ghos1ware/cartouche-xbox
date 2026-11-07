@@ -370,6 +370,43 @@ namespace {
 		Diag(line);
 	}
 
+	const wchar_t* PREVIEW_DIAG = LR"JS((() => {
+  const say = (o) => { try { window.chrome.webview.postMessage(JSON.stringify({ cartoucheDiag: o })); } catch (e) {} };
+  const t = { tex: 0, texBytes: 0, buf: 0, bufBytes: 0, rb: 0, rbBytes: 0, contexts: [], big: [], images: 0, imagePixels: 0, errors: [] };
+  let dirty = false;
+  const BPP = 4;
+  const note = (kind, w, h, d) => { const bytes = w * h * (d || 1) * BPP; t.tex++; t.texBytes += bytes; if (bytes >= 4 * 1048576) t.big.push(kind + " " + w + "x" + h + (d > 1 ? "x" + d : "")); dirty = true; };
+  for (const P of [window.WebGLRenderingContext, window.WebGL2RenderingContext].filter(Boolean).map((c) => c.prototype)) {
+    const ti = P.texImage2D;
+    P.texImage2D = function (...a) {
+      try { if (a.length >= 8) note("tex", a[3], a[4]); else { const s = a[5]; if (s && s.width) note("img", s.videoWidth || s.naturalWidth || s.width, s.videoHeight || s.naturalHeight || s.height); } } catch (e) {}
+      return ti.apply(this, a);
+    };
+    if (P.texStorage2D) { const ts = P.texStorage2D; P.texStorage2D = function (target, levels, fmt, w, h) { note("storage", w, h, levels > 1 ? 1.34 : 1); return ts.apply(this, arguments); }; }
+    if (P.texStorage3D) { const t3 = P.texStorage3D; P.texStorage3D = function (target, levels, fmt, w, h, d) { note("storage3d", w, h, d); return t3.apply(this, arguments); }; }
+    if (P.texImage3D) { const i3 = P.texImage3D; P.texImage3D = function (target, level, fmt, w, h, d) { if (typeof w === "number") note("tex3d", w, h, d); return i3.apply(this, arguments); }; }
+    const bd = P.bufferData;
+    P.bufferData = function (target, data) { try { const n = typeof data === "number" ? data : (data && data.byteLength) || 0; t.buf++; t.bufBytes += n; dirty = true; } catch (e) {} return bd.apply(this, arguments); };
+    const rs = P.renderbufferStorage;
+    P.renderbufferStorage = function (target, fmt, w, h) { t.rb++; t.rbBytes += w * h * BPP; dirty = true; return rs.apply(this, arguments); };
+    if (P.renderbufferStorageMultisample) { const rm = P.renderbufferStorageMultisample; P.renderbufferStorageMultisample = function (target, samples, fmt, w, h) { t.rb++; t.rbBytes += w * h * BPP * Math.max(1, samples); dirty = true; return rm.apply(this, arguments); }; }
+  }
+  const gc = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (kind, opts) {
+    const c = gc.apply(this, arguments);
+    if (c && /webgl/.test(kind) && !this.__diag) { this.__diag = 1; t.contexts.push(kind + " " + this.width + "x" + this.height + " aa=" + Boolean(opts && opts.antialias)); dirty = true; this.addEventListener("webglcontextlost", () => { t.errors.push("lost"); dirty = true; }); }
+    return c;
+  };
+  addEventListener("error", (e) => { t.errors.push(String(e.message).slice(0, 160)); dirty = true; });
+  addEventListener("unhandledrejection", (e) => { t.errors.push(String((e.reason && e.reason.message) || e.reason).slice(0, 160)); dirty = true; });
+  setInterval(() => {
+    if (!dirty) return;
+    dirty = false;
+    const mb = (n) => Math.round(n / 1048576) + "MB";
+    say({ at: Math.round(performance.now()), dpr: devicePixelRatio, contexts: t.contexts, tex: t.tex + "=" + mb(t.texBytes), buf: t.buf + "=" + mb(t.bufBytes), rb: t.rb + "=" + mb(t.rbBytes), big: t.big.slice(-12), errors: t.errors.slice(-5) });
+  }, 500);
+})();)JS";
+
 	const wchar_t* PREVIEW_GATE = LR"JS((() => {
   try { navigator.gamepadInputEmulation = "gamepad"; } catch (e) {}
   // No WebGPU here: on the console, a game drawing with it (the kit's three/webgpu) lost the graphics
@@ -1139,7 +1176,9 @@ void CartouchePage::WirePreview() {
 			return;
 		}
 		JsonObject^ answer;
-		if (text == nullptr || text->Length() > 4 * 1024 * 1024 || !JsonObject::TryParse(text, &answer) || !answer->HasKey(L"cartouchePreview")) return;
+		if (text == nullptr || text->Length() > 4 * 1024 * 1024 || !JsonObject::TryParse(text, &answer)) return;
+		if (answer->HasKey(L"cartoucheDiag")) return Diag(L"game " + std::wstring(answer->GetNamedValue(L"cartoucheDiag")->Stringify()->Data()).substr(0, 3000));
+		if (!answer->HasKey(L"cartouchePreview")) return;
 		page->Event(L"previewResult", answer);
 	});
 	// The game's page died (out of memory, most often): the Studio gets the controller back, the game loads again.
@@ -1170,6 +1209,7 @@ void CartouchePage::WirePreview() {
 		}
 	});
 	core->AddScriptToExecuteOnDocumentCreatedAsync(ref new String(PREVIEW_GATE));
+	if (diagOn) core->AddScriptToExecuteOnDocumentCreatedAsync(ref new String(PREVIEW_DIAG));
 }
 
 // A view drawn again from nothing: hidden, then shown once laid out (after the GPU process came back).
