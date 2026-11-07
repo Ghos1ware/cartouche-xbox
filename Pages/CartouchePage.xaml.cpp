@@ -547,7 +547,14 @@ void CartouchePage::Start() {
 		core->WebMessageReceived += ref new TypedEventHandler<CoreWebView2^, CoreWebView2WebMessageReceivedEventArgs^>(page, &CartouchePage::OnWebMessage);
 		core->NavigationStarting += ref new TypedEventHandler<CoreWebView2^, CoreWebView2NavigationStartingEventArgs^>(page, &CartouchePage::OnNavigationStarting);
 		core->NewWindowRequested += ref new TypedEventHandler<CoreWebView2^, CoreWebView2NewWindowRequestedEventArgs^>(page, &CartouchePage::OnNewWindow);
-		core->ProcessFailed += ref new TypedEventHandler<CoreWebView2^, CoreWebView2ProcessFailedEventArgs^>([](CoreWebView2^ sender, CoreWebView2ProcessFailedEventArgs^ args) { DiagFailed(L"web", args); });
+		// The GPU process gone (the console's graphics device lost: it quits with it and starts again): the
+		// view, left white on the console, is laid out anew so it draws on the new one.
+		core->ProcessFailed += ref new TypedEventHandler<CoreWebView2^, CoreWebView2ProcessFailedEventArgs^>([weakThis](CoreWebView2^ sender, CoreWebView2ProcessFailedEventArgs^ args) {
+			DiagFailed(L"web", args);
+			if (args->ProcessFailedKind != CoreWebView2ProcessFailedKind::GpuProcessExited) return;
+			auto inner = weakThis.Resolve<CartouchePage>();
+			if (inner != nullptr) inner->Redraw(inner->Web);
+		});
 		// The page reads the controller only while its document has the focus (input.ts): the
 		// WebView takes it as soon as a page has loaded, and again if XAML ever moves it away.
 		core->NavigationCompleted += ref new TypedEventHandler<CoreWebView2^, CoreWebView2NavigationCompletedEventArgs^>([weakThis](CoreWebView2^ sender, CoreWebView2NavigationCompletedEventArgs^ args) {
@@ -1138,7 +1145,8 @@ void CartouchePage::WirePreview() {
 		auto page = weakThis.Resolve<CartouchePage>();
 		if (page == nullptr || page->previewOrigin == nullptr) return;
 		auto kind = args->ProcessFailedKind;
-		if (kind != CoreWebView2ProcessFailedKind::RenderProcessExited && kind != CoreWebView2ProcessFailedKind::RenderProcessUnresponsive && kind != CoreWebView2ProcessFailedKind::FrameRenderProcessExited) return;
+		// The GPU process gone too: the game's WebGL died with it (a game loading never finishes), so it loads again.
+		if (kind != CoreWebView2ProcessFailedKind::RenderProcessExited && kind != CoreWebView2ProcessFailedKind::RenderProcessUnresponsive && kind != CoreWebView2ProcessFailedKind::FrameRenderProcessExited && kind != CoreWebView2ProcessFailedKind::GpuProcessExited) return;
 		page->PreviewPlaying(false);
 		page->previewLoaded = false;
 		page->PreviewLayout();
@@ -1149,6 +1157,28 @@ void CartouchePage::WirePreview() {
 		}
 	});
 	core->AddScriptToExecuteOnDocumentCreatedAsync(ref new String(PREVIEW_GATE));
+}
+
+// A view drawn again from nothing: hidden, then shown once laid out (after the GPU process came back).
+void CartouchePage::Redraw(UIElement^ view) {
+	WeakReference weakThis(this);
+	create_task([weakThis, view]() {
+		Sleep(800);
+		auto page = weakThis.Resolve<CartouchePage>();
+		if (page == nullptr) return;
+		page->Dispatcher->RunAsync(CoreDispatcherPriority::Normal, ref new DispatchedHandler([weakThis, view]() {
+			auto inner = weakThis.Resolve<CartouchePage>();
+			if (inner == nullptr || view->Visibility != Windows::UI::Xaml::Visibility::Visible) return;
+			Diag(L"redraw");
+			view->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
+			inner->Dispatcher->RunAsync(CoreDispatcherPriority::Low, ref new DispatchedHandler([weakThis]() {
+				auto again = weakThis.Resolve<CartouchePage>();
+				if (again == nullptr) return;
+				again->PreviewLayout();
+				if (!again->previewPlaying.load()) again->Web->Focus(Windows::UI::Xaml::FocusState::Programmatic);
+			}));
+		}));
+	});
 }
 
 // Played (« Jouer »): the game on the whole screen, the interface hidden behind it (its GPU tiles and
