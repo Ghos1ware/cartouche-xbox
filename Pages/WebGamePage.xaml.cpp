@@ -50,6 +50,19 @@ void WebGamePage::OnNavigatedTo(NavigationEventArgs^ e) {
 		});
 		// Edge on Xbox drives a cursor with the controller unless the page takes the controller.
 		core->AddScriptToExecuteOnDocumentCreatedAsync(L"try { navigator.gamepadInputEmulation = 'gamepad'; } catch (e) {}");
+		// As in the Studio's preview (CartouchePage PREVIEW_GATE): no WebGPU and no GPU timers, which brought
+		// the console's GPU process down as a game made with Cartouche Studio loaded. WebGL 2 instead.
+		core->AddScriptToExecuteOnDocumentCreatedAsync(LR"JS((() => {
+  try { Object.defineProperty(Navigator.prototype, "gpu", { configurable: true, get: () => undefined }); } catch (e) {}
+  try {
+    const TIMERS = /disjoint_timer_query/i;
+    for (const C of [window.WebGLRenderingContext, window.WebGL2RenderingContext].filter(Boolean)) {
+      const get = C.prototype.getExtension, list = C.prototype.getSupportedExtensions;
+      C.prototype.getExtension = function (name) { return TIMERS.test(String(name)) ? null : get.call(this, name); };
+      C.prototype.getSupportedExtensions = function () { const all = list.call(this); return all ? all.filter((name) => !TIMERS.test(name)) : all; };
+    }
+  } catch (e) {}
+})();)JS");
 		core->Navigate(url);
 		page->Web->Focus(Windows::UI::Xaml::FocusState::Programmatic);
 	}, task_continuation_context::use_current());
