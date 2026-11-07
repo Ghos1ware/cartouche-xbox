@@ -1136,9 +1136,17 @@ task<IJsonValue^> CartouchePage::PreviewCall(const std::wstring& name, JsonArray
 		if (core != nullptr) core->Navigate(L"about:blank");
 		return none();
 	}
-	// [x, y, width, height, visible, muted], in the page's pixels (the same as this page's).
+	// [x, y, width, height, visible, muted, pageWidth, pageHeight], in the page's pixels: scaled to
+	// this page's own (a TV draws the page at its own scale, not one page pixel per XAML unit).
 	if (name == L"previewPlace") {
 		double x = args->GetNumberAt(0), y = args->GetNumberAt(1), width = args->GetNumberAt(2), height = args->GetNumberAt(3);
+		if (args->Size > 7 && args->GetNumberAt(6) > 0 && args->GetNumberAt(7) > 0 && Web->ActualWidth > 0 && Web->ActualHeight > 0) {
+			double sx = Web->ActualWidth / args->GetNumberAt(6), sy = Web->ActualHeight / args->GetNumberAt(7);
+			x *= sx;
+			width *= sx;
+			y *= sy;
+			height *= sy;
+		}
 		bool visible = args->GetBooleanAt(4) && previewOrigin != nullptr && width > 2 && height > 2;
 		Preview->Margin = Thickness(x, y, 0, 0);
 		Preview->Width = width > 1 ? width : 1;
