@@ -12,8 +12,10 @@
 #include "Common/DeviceWatcherHelper.h"
 #include "Pages/CartouchePage.g.h"
 #include "State/ApplicationState.h"
+#include "Bridge/GpuBridge.h"
 
 #include <atomic>
+#include <memory>
 #include <set>
 #include <vector>
 
@@ -71,6 +73,29 @@ namespace moonlight_xbox_dx {
 		bool previewWired = false;
 		bool previewLoaded = false;
 		std::atomic<bool> previewPlaying{ false };
+
+		// The game's WebGPU drawn natively (Bridge/PROTOCOL.md): Dawn on DirectX 12 into GpuPanel.
+		void GpuTriangle();
+		void GpuTicking(bool on);
+		std::unique_ptr<GpuBridge> gpu;
+		Windows::Foundation::EventRegistrationToken gpuTick{};
+		bool gpuTicking = false;
+		// The preview through the bridge (the shim injected, its page transparent), or the browser's own WebGPU.
+		bool GpuStart();
+		void GpuStop();
+		void GpuMessage(Microsoft::Web::WebView2::Core::CoreWebView2^ core, Windows::Data::Json::JsonObject^ message);
+		void GpuLayout();
+		bool gpuNative = false;
+		bool gpuStarted = false;
+		bool gpuAvailable = false;
+		bool gpuDrawing = false;
+		std::string gpuAdapter, gpuReason;
+		std::vector<Microsoft::Web::WebView2::Core::CoreWebView2SharedBuffer^> gpuBuffers;
+		std::vector<Windows::Foundation::IMemoryBufferReference^> gpuBufferRefs;
+		std::vector<uint8_t*> gpuBufferData;
+		std::vector<uint64_t> gpuBufferSize;
+		// Where the game's canvas is, in the preview's CSS pixels, and the preview's own size in them.
+		double gpuRect[4] = { 0, 0, 0, 0 }, gpuViewport[2] = { 0, 0 };
 
 		MoonlightHost^ Host(Platform::String^ uuid);
 		Windows::Data::Json::JsonArray^ Computers();

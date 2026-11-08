@@ -393,6 +393,12 @@
       <CompileAs>CompileAsCpp</CompileAs>
     </ClCompile>
   </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Platform)'=='x64'">
+    <Link>
+      <AdditionalDependencies>webgpu_dawn.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(ProjectDir)third_party\dawn-uwp\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
   <ItemGroup>
     <None Include="Assets\Fonts\Unbounded.ttf">
       <DeploymentContent>true</DeploymentContent>
@@ -486,6 +492,8 @@
     <ClInclude Include="Streaming\PacerCompat.h" />
     <ClInclude Include="Streaming\PyroWave\D3D12Decoder.h" />
     <ClInclude Include="Pages\D3D12Probe\D3D12Probe.h" />
+    <ClInclude Include="Bridge\GpuBridge.h" />
+    <ClInclude Include="Bridge\DawnPlatform.h" />
     <ClInclude Include="Streaming\PyroWave\FramePool.h" />
     <ClInclude Include="Streaming\PyroWave\PyroWaveFraming.h" />
     <ClInclude Include="Streaming\PyroWaveDecoder.h" />
@@ -639,6 +647,18 @@
     <ClCompile Include="Streaming\LogRenderer.cpp" />
     <ClCompile Include="Streaming\Pacer.cpp" />
     <ClCompile Include="Pages\D3D12Probe\D3D12Probe.cpp" />
+    <ClCompile Include="Bridge\GpuBridge.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <CompileAsWinRT>false</CompileAsWinRT>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir)third_party\dawn-uwp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <ClCompile Include="Bridge\DawnPlatform.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <CompileAsWinRT>false</CompileAsWinRT>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir)third_party\dawn-uwp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
     <ClCompile Include="Streaming\PyroWave\D3D12Decoder.cpp">
       <AdditionalIncludeDirectories>$(ProjectDir)third_party\pyrowave\d3d12;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
@@ -767,6 +787,12 @@
     </ApplicationDefinition>
   </ItemGroup>
   <ItemGroup>
+    <CopyFileToFolders Include="third_party\dawn-uwp\bin\*">
+      <FileType>Document</FileType>
+    </CopyFileToFolders>
+    <None Include="Assets\webgpu-bridge.js">
+      <DeploymentContent>true</DeploymentContent>
+    </None>
     <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
       <FileType>Document</FileType>
     </CopyFileToFolders>

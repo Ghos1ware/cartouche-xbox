@@ -42,6 +42,9 @@
 
         <!-- Cartouche Studio's live preview: the game the PC serves on this network, docked where the
              page's stage is (the channel's preview calls), as the PC docks it in its own window. -->
+        <!-- The game's 3D picture drawn natively (Dawn on DirectX 12, Bridge/), under the preview's transparent page. -->
+        <SwapChainPanel x:Name="GpuPanel" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Top" Width="1" Height="1" IsHitTestVisible="False" />
+
         <muxc:WebView2 x:Name="Preview" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Top" Width="1" Height="1" />
 
         <!-- Over the game played on the whole screen, a moment: how to come back (the page's words). -->

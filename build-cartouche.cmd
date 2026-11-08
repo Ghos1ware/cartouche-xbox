@@ -27,6 +27,8 @@ if not exist libgamestream\build\CMakeCache.txt cmake -B libgamestream\build -S 
 
 if not exist "%NUGET%" (echo nuget.exe not found: %NUGET% & exit /b 1)
 "%NUGET%" restore moonlight-xbox-dx.sln || exit /b 1
+call "%ROOT%\build-dawn.cmd" || exit /b 1
+cd /d "%ROOT%"
 
 if "%1"=="store" (
   msbuild /m /nologo /v:m /p:Configuration=Release /p:Platform=x64 /p:AppxBundle=Always /p:AppxBundlePlatforms=x64 /p:AppxPackageDir="%ROOT%\output-store\\" /p:AppxPackageSigningEnabled=false /p:UapAppxPackageBuildMode=StoreUpload moonlight-xbox-dx.sln || exit /b 1

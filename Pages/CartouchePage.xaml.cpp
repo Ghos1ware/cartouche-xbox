@@ -31,6 +31,9 @@ extern "C" {
 #include <libgamestream/http.h>
 }
 
+#include <MemoryBuffer.h>
+#include <wrl/client.h>
+
 #include <cmath>
 #include <cwctype>
 #include <fstream>
@@ -488,6 +491,7 @@ void CartouchePage::OnNavigatedTo(NavigationEventArgs^ e) {
 }
 
 void CartouchePage::OnNavigatedFrom(NavigationEventArgs^ e) {
+	GpuStop();
 	SystemNavigationManager::GetForCurrentView()->BackRequested -= backToken;
 	polling.store(false);
 	deviceWatcherHelper->Reset();
@@ -572,6 +576,11 @@ void CartouchePage::Start() {
 		}
 	}
 	SetEnvironmentVariableW(L"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", browserArgs.c_str());
+	// The Studio's preview drawn by the app (Bridge/, Dawn on DirectX 12): for now with the « preview-native » file.
+	{
+		WIN32_FILE_ATTRIBUTE_DATA found;
+		gpuNative = GetFileAttributesExW((diagFolder + L"\\preview-native").c_str(), GetFileExInfoStandard, &found) != 0;
+	}
 	if (diagOn) {
 		auto version = Windows::ApplicationModel::Package::Current->Id->Version;
 		Diag(L"args " + browserArgs);
@@ -589,6 +598,18 @@ void CartouchePage::Start() {
 						Diag(L"d3d12 probe threw");
 					}
 					Diag(L"d3d12 probe end");
+				});
+			}
+			// Dawn's own triangle on the whole screen (the « dawn-triangle » file): step 2 of XBOX-NATIVE-WEBGPU.md.
+			if (GetFileAttributesExW((diagFolder + L"\\dawn-triangle").c_str(), GetFileExInfoStandard, &probe)) {
+				create_task([weakThis]() {
+					Sleep(4000);
+					auto page = weakThis.Resolve<CartouchePage>();
+					if (page == nullptr) return;
+					page->Dispatcher->RunAsync(CoreDispatcherPriority::Normal, ref new DispatchedHandler([weakThis]() {
+						auto inner = weakThis.Resolve<CartouchePage>();
+						if (inner != nullptr) inner->GpuTriangle();
+					}));
 				});
 			}
 		}
@@ -1078,6 +1099,7 @@ void CartouchePage::Watch(MoonlightHost^ host) {
 }
 
 void CartouchePage::Play(MoonlightHost^ host, int appId, String^ name) {
+	GpuStop();
 	// As Moonlight's AppPage does, with the PC's own settings (HostSettingsPage).
 	StreamConfiguration^ config = ref new StreamConfiguration();
 	config->hostname = host->LastHostname;
@@ -1230,6 +1252,24 @@ void CartouchePage::WirePreview() {
 	core->WebMessageReceived += ref new TypedEventHandler<CoreWebView2^, CoreWebView2WebMessageReceivedEventArgs^>([weakThis](CoreWebView2^ sender, CoreWebView2WebMessageReceivedEventArgs^ args) {
 		auto page = weakThis.Resolve<CartouchePage>();
 		if (page == nullptr || !SameOrigin(args->Source, page->previewOrigin)) return;
+		if (page->gpuNative) {
+			JsonObject^ bridge;
+			String^ asJson = nullptr;
+			try {
+				asJson = args->WebMessageAsJson;
+			}
+			catch (...) {
+			}
+			if (asJson != nullptr && asJson->Length() > 0 && asJson->Data()[0] == L'{' && JsonObject::TryParse(asJson, &bridge) && bridge->HasKey(L"gpuBridge")) {
+				try {
+					page->GpuMessage(sender, bridge);
+				}
+				catch (Exception^ e) {
+					Diag(L"bridge message threw " + std::wstring(e->Message->Data()));
+				}
+				return;
+			}
+		}
 		String^ text;
 		try {
 			text = args->TryGetWebMessageAsString();
@@ -1276,6 +1316,12 @@ void CartouchePage::WirePreview() {
 		bool webgl = diagOn && GetFileAttributesExW((std::wstring(Windows::Storage::ApplicationData::Current->LocalFolder->Path->Data()) + L"\\preview-webgl").c_str(), GetFileExInfoStandard, &found) != 0;
 		Diag(webgl ? L"preview webgl2" : L"preview webgpu (d3d11, compatibility)");
 		core->AddScriptToExecuteOnDocumentCreatedAsync(ref new String(webgl ? PREVIEW_NO_WEBGPU : XBOX_WEBGPU_GATE));
+		if (gpuNative && !webgl) {
+			std::ifstream in(std::wstring(Windows::ApplicationModel::Package::Current->InstalledLocation->Path->Data()) + L"\\Assets\\webgpu-bridge.js", std::ios::binary);
+			std::string shim((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+			Diag(L"preview through the bridge (dawn, d3d12), shim " + std::to_wstring(shim.size()) + L" bytes");
+			if (!shim.empty()) core->AddScriptToExecuteOnDocumentCreatedAsync(ref new String(Utils::NarrowToWideString(shim).c_str()));
+		}
 	}
 	if (diagOn) core->AddScriptToExecuteOnDocumentCreatedAsync(ref new String(PREVIEW_DIAG));
 }
@@ -1330,6 +1376,195 @@ void CartouchePage::Redraw(UIElement^ view) {
 	});
 }
 
+// Dawn's callbacks and the test triangle's frames: once per frame the UI thread draws.
+void CartouchePage::GpuTicking(bool on) {
+	if (on == gpuTicking) return;
+	gpuTicking = on;
+	Diag(on ? L"gpu ticking" : L"gpu not ticking");
+	if (on) {
+		WeakReference weakThis(this);
+		gpuTick = Windows::UI::Xaml::Media::CompositionTarget::Rendering += ref new EventHandler<Object^>([weakThis](Object^, Object^) {
+			static int ticks = 0;
+			if (ticks++ == 0) Diag(L"gpu first tick");
+			auto page = weakThis.Resolve<CartouchePage>();
+			if (page != nullptr && page->gpu) page->gpu->Tick();
+		});
+	}
+	else
+		Windows::UI::Xaml::Media::CompositionTarget::Rendering -= gpuTick;
+}
+
+// Dawn let go (a stream starts, the page is left): the next preview through the bridge starts it again.
+void CartouchePage::GpuStop() {
+	if (!gpu) return;
+	GpuTicking(false);
+	gpuDrawing = false;
+	GpuPanel->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
+	if (gpuStarted) Diag(L"dawn stopped");
+	gpu->Stop();
+	gpuStarted = false;
+	gpuAvailable = false;
+}
+
+// Dawn's device, started when a page asks for it: what the pages are told (or why there is none).
+bool CartouchePage::GpuStart() {
+	if (!gpu) {
+		WeakReference weakThis(this);
+		gpu = std::make_unique<GpuBridge>(
+			[weakThis](const std::string& message) {
+				// Errors and a lost device in the log too: what the game could not draw.
+				if (message.find("\"gpuBridge\":\"error\"") != std::string::npos || message.find("\"gpuBridge\":\"lost\"") != std::string::npos) Diag(L"bridge says " + Utils::NarrowToWideString(message.substr(0, 1500)));
+				auto page = weakThis.Resolve<CartouchePage>();
+				if (page == nullptr || page->Preview->CoreWebView2 == nullptr || !page->gpuNative) return;
+				try {
+					page->Preview->CoreWebView2->PostWebMessageAsJson(ref new String(Utils::NarrowToWideString(message).c_str()));
+				}
+				catch (...) {
+				}
+			},
+			[](const std::string& line) { Diag(Utils::NarrowToWideString(line)); });
+	}
+	if (!gpuStarted) {
+		gpuStarted = true;
+		auto started = GetTickCount64();
+		try {
+			gpuAvailable = gpu->Start(gpuAdapter, gpuReason, std::wstring(Windows::Storage::ApplicationData::Current->LocalCacheFolder->Path->Data()) + L"\dawn-cache");
+		}
+		catch (...) {
+			gpuAvailable = false;
+			gpuReason = "threw";
+		}
+		Diag(L"dawn " + std::wstring(gpuAvailable ? L"ready in " : L"failed in ") + std::to_wstring(GetTickCount64() - started) + L" ms " + Utils::NarrowToWideString(gpuAvailable ? gpuAdapter.substr(0, 300) : gpuReason));
+	}
+	return gpuAvailable;
+}
+
+// The preview's page and the bridge (Bridge/PROTOCOL.md): buffers given, flushes replayed, the canvas placed.
+void CartouchePage::GpuMessage(CoreWebView2^ core, JsonObject^ message) {
+	auto kind = message->GetNamedString(L"gpuBridge", L"");
+	if (kind == L"hello") {
+		// A new document: what the last one made goes, the picture with it until this one draws.
+		gpuDrawing = false;
+		gpuRect[0] = gpuRect[1] = gpuRect[2] = gpuRect[3] = 0;
+		if (gpu) gpu->Reset();
+		GpuLayout();
+		if (!GpuStart()) {
+			core->PostWebMessageAsJson(L"{\"gpuBridge\":\"unavailable\",\"reason\":" + JsonValue::CreateStringValue(ref new String(Utils::NarrowToWideString(gpuReason).c_str()))->Stringify() + L"}");
+			return;
+		}
+		gpu->SetPanel(reinterpret_cast<void*>(GpuPanel));
+		try {
+			if (gpuBuffers.empty())
+				for (int i = 0; i < 4; i++) {
+					auto buffer = core->Environment->CreateSharedBuffer(16ull << 20);
+					gpuBuffers.push_back(buffer);
+					// Its bytes, mapped in this process too (the reference kept: the pointer lives as long as it does).
+					auto memory = buffer->Buffer;
+					Microsoft::WRL::ComPtr<Windows::Foundation::IMemoryBufferByteAccess> access;
+					BYTE* bytes = nullptr;
+					UINT32 capacity = 0;
+					if (FAILED(reinterpret_cast<IInspectable*>(memory)->QueryInterface(IID_PPV_ARGS(&access))) || FAILED(access->GetBuffer(&bytes, &capacity)) || !bytes) throw ref new Exception(E_FAIL, L"shared buffer bytes");
+					gpuBufferRefs.push_back(memory);
+					gpuBufferData.push_back(bytes);
+					gpuBufferSize.push_back(capacity);
+				}
+			for (size_t i = 0; i < gpuBuffers.size(); i++)
+				core->PostSharedBufferToScript(gpuBuffers[i], CoreWebView2SharedBufferAccess::ReadWrite, ref new String((L"{\"gpuBridge\":\"buffer\",\"index\":" + std::to_wstring(i) + L"}").c_str()));
+		}
+		catch (Exception^ e) {
+			Diag(L"bridge buffers failed " + std::wstring(e->Message->Data()));
+			core->PostWebMessageAsJson(L"{\"gpuBridge\":\"unavailable\",\"reason\":\"shared buffers\"}");
+			return;
+		}
+		core->PostWebMessageAsJson(ref new String((L"{\"gpuBridge\":\"ready\",\"adapter\":" + Utils::NarrowToWideString(gpuAdapter) + L"}").c_str()));
+		GpuTicking(true);
+		Diag(L"bridge hello");
+		return;
+	}
+	if (!gpu || !gpuAvailable) return;
+	if (kind == L"flush") {
+		double index = message->GetNamedNumber(L"buffer", -1), length = message->GetNamedNumber(L"length", 0);
+		if (index >= 0 && index < gpuBufferData.size() && length >= 0 && length <= gpuBufferSize[static_cast<size_t>(index)]) gpu->Execute(gpuBufferData[static_cast<size_t>(index)], static_cast<size_t>(length));
+		core->PostWebMessageAsJson(ref new String((L"{\"gpuBridge\":\"ack\",\"buffer\":" + std::to_wstring(static_cast<int>(index)) + L"}").c_str()));
+	}
+	else if (kind == L"inline") {
+		auto bytes = Windows::Security::Cryptography::CryptographicBuffer::DecodeFromBase64String(message->GetNamedString(L"data", L""));
+		Platform::Array<unsigned char>^ data = nullptr;
+		Windows::Security::Cryptography::CryptographicBuffer::CopyToByteArray(bytes, &data);
+		if (data != nullptr) gpu->Execute(data->Data, data->Length);
+	}
+	else if (kind == L"place") {
+		auto rect = message->GetNamedArray(L"rect", nullptr);
+		auto viewport = message->GetNamedArray(L"viewport", nullptr);
+		if (rect != nullptr && rect->Size == 4 && viewport != nullptr && viewport->Size == 2) {
+			for (unsigned int i = 0; i < 4; i++) gpuRect[i] = rect->GetNumberAt(i);
+			gpuViewport[0] = viewport->GetNumberAt(0);
+			gpuViewport[1] = viewport->GetNumberAt(1);
+		}
+		GpuLayout();
+		return;
+	}
+	if (!gpuDrawing && gpu->stats().presents > 0) {
+		gpuDrawing = true;
+		Diag(L"bridge drawing");
+		GpuLayout();
+	}
+}
+
+// The native picture where the game's canvas is: the preview's place, the canvas's rectangle in it, the
+// picture's pixels stretched over it (a swap chain shows its pixels one for one, so the panel is scaled).
+void CartouchePage::GpuLayout() {
+	auto stats = gpu ? gpu->stats() : GpuBridge::Stats{};
+	bool show = gpuNative && gpuDrawing && Preview->Visibility == Windows::UI::Xaml::Visibility::Visible && stats.surfaceWidth > 0 && stats.surfaceHeight > 0;
+	if (!show) {
+		GpuPanel->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
+		return;
+	}
+	double left = Preview->Margin.Left, top = Preview->Margin.Top, width = Preview->Width, height = Preview->Height;
+	double vw = gpuViewport[0] > 0 ? gpuViewport[0] : width, vh = gpuViewport[1] > 0 ? gpuViewport[1] : height;
+	double rx = gpuRect[0], ry = gpuRect[1], rw = gpuRect[2], rh = gpuRect[3];
+	if (rw <= 0 || rh <= 0) {
+		rx = ry = 0;
+		rw = vw;
+		rh = vh;
+	}
+	double sx = width / vw, sy = height / vh;
+	double scale = Windows::Graphics::Display::DisplayInformation::GetForCurrentView()->RawPixelsPerViewPixel;
+	if (scale <= 0) scale = 1;
+	double pw = stats.surfaceWidth / scale, ph = stats.surfaceHeight / scale;
+	GpuPanel->Margin = Thickness(left + rx * sx, top + ry * sy, 0, 0);
+	GpuPanel->Width = pw;
+	GpuPanel->Height = ph;
+	auto transform = ref new Windows::UI::Xaml::Media::ScaleTransform();
+	transform->ScaleX = rw * sx / pw;
+	transform->ScaleY = rh * sy / ph;
+	GpuPanel->RenderTransform = transform;
+	GpuPanel->Visibility = Windows::UI::Xaml::Visibility::Visible;
+}
+
+void CartouchePage::GpuTriangle() {
+	Diag(L"dawn start");
+	if (!GpuStart()) return;
+	std::string reason;
+	GpuPanel->Margin = Thickness(40, 40, 0, 0);
+	GpuPanel->Width = 640;
+	GpuPanel->Height = 360;
+	GpuPanel->Visibility = Windows::UI::Xaml::Visibility::Visible;
+	gpu->SetPanel(reinterpret_cast<void*>(GpuPanel));
+	// Over everything, for the test: the panel is moved last in the grid.
+	auto grid = safe_cast<Windows::UI::Xaml::Controls::Panel^>(GpuPanel->Parent);
+	unsigned int at = 0;
+	if (grid->Children->IndexOf(GpuPanel, &at)) {
+		grid->Children->RemoveAt(at);
+		grid->Children->Append(GpuPanel);
+	}
+	if (!gpu->Triangle(reason)) {
+		Diag(L"dawn triangle failed " + Utils::NarrowToWideString(reason));
+		return;
+	}
+	GpuTicking(true);
+}
+
 // Played (« Jouer »): the game on the whole screen, the interface hidden behind it (its GPU tiles and
 // memory go to the game). Otherwise: where the page's stage is, once the game has drawn (until then the
 // page's own stage shows, not an empty view).
@@ -1341,6 +1576,7 @@ void CartouchePage::PreviewLayout() {
 		Preview->Height = ActualHeight > 1 ? ActualHeight : 1;
 		Preview->Visibility = Windows::UI::Xaml::Visibility::Visible;
 		Web->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
+		GpuLayout();
 		return;
 	}
 	Web->Visibility = Windows::UI::Xaml::Visibility::Visible;
@@ -1349,6 +1585,7 @@ void CartouchePage::PreviewLayout() {
 	Preview->Height = placeHeight > 1 ? placeHeight : 1;
 	bool shown = open && placeVisible && previewLoaded && placeWidth > 2 && placeHeight > 2;
 	Preview->Visibility = shown ? Windows::UI::Xaml::Visibility::Visible : Windows::UI::Xaml::Visibility::Collapsed;
+	GpuLayout();
 }
 
 void CartouchePage::PreviewPlaying(bool on) {
@@ -1423,6 +1660,8 @@ task<IJsonValue^> CartouchePage::PreviewCall(const std::wstring& name, JsonArray
 		previewOrigin = origin;
 		previewFingerprint = ref new String(pin.c_str());
 		previewLoaded = false;
+		// Through the bridge, the page is see-through: the native picture is under it (read when its WebView starts).
+		if (Preview->CoreWebView2 == nullptr) SetEnvironmentVariableW(L"WEBVIEW2_DEFAULT_BACKGROUND_COLOR", gpuNative ? L"00000000" : L"FF07060D");
 		return create_task(Preview->EnsureCoreWebView2Async()).then([weakThis, address](task<void> ready) -> IJsonValue^ {
 			ready.get();
 			auto page = weakThis.Resolve<CartouchePage>();
@@ -1439,6 +1678,7 @@ task<IJsonValue^> CartouchePage::PreviewCall(const std::wstring& name, JsonArray
 		previewFingerprint = nullptr;
 		previewLoaded = false;
 		PreviewLayout();
+		GpuStop();
 		if (core != nullptr) core->Navigate(L"about:blank");
 		return none();
 	}

@@ -352,3 +352,6 @@ vcpkg_installed
 # Cartouche for Xbox: the sideload bundles
 output/
 output-store/
+
+# Dawn for the app, made by build-dawn.cmd
+third_party/dawn-uwp/
