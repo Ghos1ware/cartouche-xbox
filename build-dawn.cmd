@@ -27,6 +27,10 @@ cd /d "%DAWN_SRC%"
 git fetch origin %DAWN_COMMIT% 2>nul
 git checkout --detach %DAWN_COMMIT% || exit /b 1
 "%DAWN_PYTHON%" tools\fetch_dawn_dependencies.py -s || exit /b 1
+rem Our patches (third_party\dawn-patches): on the console's driver, GetCachedBlob removes the device.
+for %%p in ("%ROOT%\third_party\dawn-patches\*.patch") do (
+  git apply -R --check "%%~p" 2>nul || git apply "%%~p" || exit /b 1
+)
 
 set FLAGS=/DWIN32 /D_WINDOWS /EHsc /D_CRT_SECURE_NO_WARNINGS
 cmake -S . -B out\uwp -G "Visual Studio 17 2022" -A x64 -DCMAKE_SYSTEM_NAME=WindowsStore -DCMAKE_SYSTEM_VERSION=10.0 ^

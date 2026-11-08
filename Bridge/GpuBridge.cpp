@@ -1,7 +1,10 @@
 #define WGPU_SHARED_LIBRARY
+#define NOMINMAX
 #include "GpuBridge.h"
 #include <dawn/webgpu_cpp.h>
 #include <dawn/native/DawnNative.h>
+#include <dawn/native/D3D12Backend.h>
+#include <sstream>
 #include "DawnPlatform.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -164,12 +167,26 @@ namespace moonlight_xbox_dx {
 		void ReportError(const char* kind, const std::string& message);
 		bool Start(std::string& adapterJson, std::string& reason, const std::wstring& cacheFolder);
 		dawn::platform::Platform* platform_ = nullptr;
+		// Dawn toggles tried on the console (« +name » on, « -name » off, one per line).
+		std::string toggles_;
 		void SetPanel(void* swapChainPanel);
 		void Execute(const uint8_t* data, size_t length);
 		void Tick();
 		void Reset();
 		void Stop();
 		bool Triangle(std::string& reason);
+		// Diagnostics: the driver still has the device after a step? (logged once per step name)
+		void Check(const char* step) {
+			if (!log_ || !device_) return;
+			auto d3d = dawn::native::d3d12::GetD3D12Device(device_.Get());
+			HRESULT hr = d3d ? d3d->GetDeviceRemovedReason() : S_OK;
+			char text[32];
+			snprintf(text, sizeof text, "0x%08lX", static_cast<unsigned long>(hr));
+			log_(std::string("bridge: after ") + step + " " + (hr == S_OK ? "ok" : text));
+		}
+		bool Mode(const char* name) const { return toggles_.find(std::string("!") + name) != std::string::npos; }
+		wgpu::Texture offscreen_;
+		std::function<void(void*)> beforePipeline_;
 		void DrawTriangle();
 		bool EnsureSurface();
 
@@ -290,12 +307,42 @@ namespace moonlight_xbox_dx {
 		deviceDesc.requiredFeatureCount = wanted.size();
 		deviceDesc.requiredFeatures = wanted.data();
 		deviceDesc.requiredLimits = &limits;
+		std::vector<std::string> onNames, offNames;
+		{
+			std::istringstream lines(toggles_);
+			std::string line;
+			while (std::getline(lines, line)) {
+				while (!line.empty() && (line.back() == 13 || line.back() == 32)) line.pop_back();
+				if (line.size() > 1 && line[0] == 43) onNames.push_back(line.substr(1));
+				if (line.size() > 1 && line[0] == 45) offNames.push_back(line.substr(1));
+			}
+		}
+		std::vector<const char*> onList, offList;
+		for (auto& n : onNames) onList.push_back(n.c_str());
+		for (auto& n : offNames) offList.push_back(n.c_str());
+		wgpu::DawnTogglesDescriptor toggles = {};
+		toggles.enabledToggleCount = onList.size();
+		toggles.enabledToggles = onList.data();
+		toggles.disabledToggleCount = offList.size();
+		toggles.disabledToggles = offList.data();
+		deviceDesc.nextInChain = &toggles;
 		deviceDesc.SetUncapturedErrorCallback([](const wgpu::Device&, wgpu::ErrorType type, wgpu::StringView message, Impl* self) {
 			const char* kind = type == wgpu::ErrorType::OutOfMemory ? "out-of-memory" : type == wgpu::ErrorType::Internal ? "internal" : "validation";
 			self->ReportError(kind, text(message));
 		}, this);
-		deviceDesc.SetDeviceLostCallback(wgpu::CallbackMode::AllowSpontaneous, [this](const wgpu::Device&, wgpu::DeviceLostReason why, wgpu::StringView message) {
+		deviceDesc.SetDeviceLostCallback(wgpu::CallbackMode::AllowSpontaneous, [this](const wgpu::Device& lost, wgpu::DeviceLostReason why, wgpu::StringView message) {
 			if (why == wgpu::DeviceLostReason::Destroyed || why == wgpu::DeviceLostReason::CallbackCancelled) return;
+			// Why the driver removed the device (DXGI_ERROR_*).
+			if (log_ && lost) {
+				try {
+					auto d3d = dawn::native::d3d12::GetD3D12Device(lost.Get());
+					char hr[32];
+					snprintf(hr, sizeof hr, "0x%08lX", d3d ? static_cast<unsigned long>(d3d->GetDeviceRemovedReason()) : 0ul);
+					log_(std::string("bridge: device removed reason ") + hr);
+				}
+				catch (...) {
+				}
+			}
 			send_(json{ { "gpuBridge", "lost" }, { "reason", "unknown" }, { "message", std::string(message.data ? message.data : "", message.data ? (message.length == WGPU_STRLEN ? strlen(message.data) : message.length) : 0) } }.dump());
 		});
 		auto deviceFuture = adapter_.RequestDevice(&deviceDesc, wgpu::CallbackMode::WaitAnyOnly,
@@ -309,6 +356,15 @@ namespace moonlight_xbox_dx {
 			return false;
 		}
 		queue_ = device_.GetQueue();
+		// Dawn's own messages (warnings, dumped shaders with « +dump_shaders ») in the diagnostics log.
+		device_.SetLoggingCallback([](wgpu::LoggingType type, wgpu::StringView message, Impl* self) {
+			if (self->log_) self->log_(std::string("dawn log ") + std::to_string(static_cast<int>(type)) + ": " + text(message));
+		}, this);
+		if (log_) {
+			std::string used;
+			for (const char* t : dawn::native::GetTogglesUsed(device_.Get())) used += std::string(t) + " ";
+			log_("bridge: toggles " + used);
+		}
 
 		json lim = {
 			{ "maxTextureDimension1D", limits.maxTextureDimension1D }, { "maxTextureDimension2D", limits.maxTextureDimension2D }, { "maxTextureDimension3D", limits.maxTextureDimension3D },
@@ -371,10 +427,12 @@ namespace moonlight_xbox_dx {
 			reason = "no device";
 			return false;
 		}
+		Check("device");
 		if (!EnsureSurface()) {
 			reason = "no surface (panel)";
 			return false;
 		}
+		Check("surface");
 		wgpu::SurfaceConfiguration config = {};
 		config.device = device_;
 		config.format = wgpu::TextureFormat::BGRA8Unorm;
@@ -383,7 +441,8 @@ namespace moonlight_xbox_dx {
 		config.height = 720;
 		config.alphaMode = wgpu::CompositeAlphaMode::Opaque;
 		config.presentMode = wgpu::PresentMode::Fifo;
-		surface_.Configure(&config);
+		if (!Mode("offscreen")) surface_.Configure(&config);
+		Check("configure");
 		surfaceConfigured_ = true;
 		surfaceFormat_ = config.format;
 		surfaceWidth_ = config.width;
@@ -407,6 +466,7 @@ struct Out { @builtin(position) pos : vec4f, @location(0) color : vec3f };
 		wgpu::ShaderModuleDescriptor md = {};
 		md.nextInChain = &wgsl;
 		wgpu::ShaderModule module = device_.CreateShaderModule(&md);
+		Check("shader module");
 		wgpu::ColorTargetState target = {};
 		target.format = config.format;
 		wgpu::FragmentState fragment = {};
@@ -416,7 +476,13 @@ struct Out { @builtin(position) pos : vec4f, @location(0) color : vec3f };
 		wgpu::RenderPipelineDescriptor pd = {};
 		pd.vertex.module = module;
 		pd.fragment = &fragment;
+		if (Mode("lab") && beforePipeline_) {
+			auto d3d = dawn::native::d3d12::GetD3D12Device(device_.Get());
+			beforePipeline_(d3d.Get());
+			Check("lab on dawn's device");
+		}
 		trianglePipeline_ = device_.CreateRenderPipeline(&pd);
+		Check("pipeline");
 		double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
 		if (log_) log_("bridge: triangle pipeline in " + std::to_string(static_cast<int>(ms)) + " ms");
 		triangleFrames_ = 0;
@@ -430,8 +496,22 @@ struct Out { @builtin(position) pos : vec4f, @location(0) color : vec3f };
 			log_(std::string("bridge: triangle tick, surface ") + (surfaceConfigured_ ? "configured" : "not configured"));
 		}
 		if (!surfaceConfigured_) return;
+		bool first = triangleFrames_ == 0;
+		auto check = [&](const char* step) { if (first) Check(step); };
 		wgpu::SurfaceTexture st = {};
-		surface_.GetCurrentTexture(&st);
+		if (Mode("offscreen")) {
+			if (!offscreen_) {
+				wgpu::TextureDescriptor td = {};
+				td.size = { surfaceWidth_, surfaceHeight_, 1 };
+				td.format = surfaceFormat_;
+				td.usage = wgpu::TextureUsage::RenderAttachment;
+				offscreen_ = device_.CreateTexture(&td);
+			}
+			st.texture = offscreen_;
+		}
+		else
+			surface_.GetCurrentTexture(&st);
+		check("current texture");
 		if (!st.texture) {
 			if (log_ && triangleFrames_ < 3) log_("bridge: no surface texture, status " + std::to_string(static_cast<int>(st.status)));
 			triangleFrames_++;
@@ -450,12 +530,24 @@ struct Out { @builtin(position) pos : vec4f, @location(0) color : vec3f };
 		rp.colorAttachments = &color;
 		wgpu::CommandEncoder encoder = device_.CreateCommandEncoder();
 		wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&rp);
-		pass.SetPipeline(trianglePipeline_);
-		pass.Draw(3);
+		if (!Mode("clear-only")) {
+			pass.SetPipeline(trianglePipeline_);
+			pass.Draw(3);
+		}
 		pass.End();
 		wgpu::CommandBuffer commands = encoder.Finish();
+		check("encode");
 		queue_.Submit(1, &commands);
-		surface_.Present();
+		check("submit");
+		if (first) {
+			// The GPU done with it: what it ran is what failed, if anything.
+			bool done = false;
+			auto f = queue_.OnSubmittedWorkDone(wgpu::CallbackMode::WaitAnyOnly, [&done](wgpu::QueueWorkDoneStatus, wgpu::StringView) { done = true; });
+			instance_.WaitAny(f, 2000000000ull);
+			check("gpu work");
+		}
+		if (!Mode("offscreen") && !Mode("no-present")) surface_.Present();
+		check("present");
 		triangleFrames_++;
 		if (triangleFrames_ % 300 == 0 && log_) {
 			double fps = triangleFrames_ / std::max(0.001, t);
@@ -473,6 +565,8 @@ struct Out { @builtin(position) pos : vec4f, @location(0) color : vec3f };
 	void GpuBridge::Tick() { impl_->Tick(); }
 	void GpuBridge::Reset() { impl_->Reset(); }
 	void GpuBridge::Stop() { impl_->Stop(); }
+	void GpuBridge::SetToggles(const std::string& text) { impl_->toggles_ = text; }
+	void GpuBridge::SetBeforePipeline(std::function<void(void*)> hook) { impl_->beforePipeline_ = std::move(hook); }
 	bool GpuBridge::Triangle(std::string& reason) { return impl_->Triangle(reason); }
 	GpuBridge::Stats GpuBridge::stats() const {
 		Stats s = impl_->stats_;

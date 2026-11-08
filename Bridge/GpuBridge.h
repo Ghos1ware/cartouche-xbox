@@ -24,6 +24,10 @@ namespace moonlight_xbox_dx {
 		// What Dawn compiles is kept in cacheFolder (empty: nothing kept).
 		bool Start(std::string& adapterJson, std::string& reason, const std::wstring& cacheFolder);
 		std::string CacheStats() const;
+		// Dawn toggles for the next Start (diagnostics: « +name » / « -name » per line).
+		void SetToggles(const std::string& text);
+		// Diagnostics (« !lab »): called with Dawn's ID3D12Device just before the test triangle's pipeline.
+		void SetBeforePipeline(std::function<void(void*)> hook);
 		// Where the picture goes: the XAML SwapChainPanel, as its IInspectable.
 		void SetPanel(void* swapChainPanel);
 		// One flush of the page's commands.

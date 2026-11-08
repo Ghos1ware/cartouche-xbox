@@ -600,6 +600,19 @@ void CartouchePage::Start() {
 					Diag(L"d3d12 probe end");
 				});
 			}
+			if (GetFileAttributesExW((diagFolder + L"\\pso-lab").c_str(), GetFileExInfoStandard, &probe)) {
+				create_task([]() {
+					Sleep(3000);
+					Diag(L"pso lab start");
+					try {
+						for (const auto& line : RunPsoLab(diagFolder)) Diag(line);
+					}
+					catch (...) {
+						Diag(L"pso lab threw");
+					}
+					Diag(L"pso lab end");
+				});
+			}
 			// Dawn's own triangle on the whole screen (the « dawn-triangle » file): step 2 of XBOX-NATIVE-WEBGPU.md.
 			if (GetFileAttributesExW((diagFolder + L"\\dawn-triangle").c_str(), GetFileExInfoStandard, &probe)) {
 				create_task([weakThis]() {
@@ -1426,6 +1439,14 @@ bool CartouchePage::GpuStart() {
 	}
 	if (!gpuStarted) {
 		gpuStarted = true;
+		{
+			std::ifstream in(diagFolder + L"\\dawn-toggles.txt", std::ios::binary);
+			std::string toggles((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+			gpu->SetToggles(toggles);
+			gpu->SetBeforePipeline([](void* device) {
+				for (const auto& line : RunPsoLab(diagFolder, device)) Diag(L"on dawn " + line);
+			});
+		}
 		auto started = GetTickCount64();
 		try {
 			gpuAvailable = gpu->Start(gpuAdapter, gpuReason, std::wstring(Windows::Storage::ApplicationData::Current->LocalCacheFolder->Path->Data()) + L"\dawn-cache");

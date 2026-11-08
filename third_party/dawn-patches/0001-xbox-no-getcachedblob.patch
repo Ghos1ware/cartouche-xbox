@@ -1,0 +1,141 @@
+diff --git a/src/dawn/native/d3d12/ComputePipelineD3D12.cpp b/src/dawn/native/d3d12/ComputePipelineD3D12.cpp
+index 00f17725f..62ee342f2 100644
+--- a/src/dawn/native/d3d12/ComputePipelineD3D12.cpp
++++ b/src/dawn/native/d3d12/ComputePipelineD3D12.cpp
+@@ -41,6 +41,7 @@
+ #include "src/dawn/native/d3d12/ShaderModuleD3D12.h"
+ #include "src/dawn/native/d3d12/UtilsD3D12.h"
+ #include "src/dawn/platform/metrics/HistogramMacros.h"
++#include "src/utils/platform.h"
+ 
+ namespace dawn::native::d3d12 {
+ 
+@@ -142,7 +143,10 @@ ResultOrUnknownError<Extent3D> ComputePipeline::InitializeImpl() {
+     }
+     DAWN_TRY(CheckHRESULT(result, "D3D12 creating pipeline state"));
+ 
+-    if (!cacheHit) {
++    // Cartouche (Xbox): on the console's app driver, ID3D12PipelineState::GetCachedBlob removes the device
++    // (DXGI_ERROR_DRIVER_INTERNAL_ERROR). The pipeline is not kept there; the shaders still are.
++    constexpr bool kGetCachedBlob = !DAWN_PLATFORM_IS(WINUWP);
++    if (!cacheHit && kGetCachedBlob) {
+         // Cache misses, need to get pipeline cached blob and store.
+         cacheTimer.RecordMicroseconds("D3D12.CreateComputePipelineState.CacheMiss");
+         ComPtr<ID3DBlob> d3dBlob;
+@@ -151,7 +155,7 @@ ResultOrUnknownError<Extent3D> ComputePipeline::InitializeImpl() {
+                              "D3D12 compute pipeline state get cached blob"))) {
+             device->StoreCachedBlob(GetCacheKey(), CreateBlob(std::move(d3dBlob)));
+         }
+-    } else {
++    } else if (cacheHit) {
+         cacheTimer.RecordMicroseconds("D3D12.CreateComputePipelineState.CacheHit");
+     }
+ 
+diff --git a/src/dawn/native/d3d12/RenderPipelineD3D12.cpp b/src/dawn/native/d3d12/RenderPipelineD3D12.cpp
+index 0baf6a9c3..cdd873013 100644
+--- a/src/dawn/native/d3d12/RenderPipelineD3D12.cpp
++++ b/src/dawn/native/d3d12/RenderPipelineD3D12.cpp
+@@ -47,6 +47,7 @@
+ #include "src/dawn/platform/metrics/HistogramMacros.h"
+ #include "src/utils/assert.h"
+ #include "src/utils/compiler.h"
++#include "src/utils/platform.h"
+ 
+ namespace dawn::native::d3d12 {
+ namespace {
+@@ -484,6 +485,74 @@ MaybeUnknownError RenderPipeline::InitializeImpl() {
+     // We don't use the scoped cache histogram counters for the cache hit here so that we can
+     // condition on whether it fails appropriately.
+     auto* d3d12Device = device->GetD3D12Device();
++    // Cartouche (Xbox): what goes to the driver, for comparing with a pipeline it takes.
++    if (device->IsToggleEnabled(Toggle::DumpShaders)) {
++        std::string d = "PSO desc:";
++        auto add = [&d](const char* name, uint64_t value) {
++            d += std::string(" ") + name + "=" + std::to_string(value);
++        };
++        add("VS", descriptorD3D12.VS.BytecodeLength);
++        add("PS", descriptorD3D12.PS.BytecodeLength);
++        add("cached", descriptorD3D12.CachedPSO.CachedBlobSizeInBytes);
++        add("flags", descriptorD3D12.Flags);
++        add("node", descriptorD3D12.NodeMask);
++        add("inputs", descriptorD3D12.InputLayout.NumElements);
++        add("strip", descriptorD3D12.IBStripCutValue);
++        add("topo", descriptorD3D12.PrimitiveTopologyType);
++        add("rts", descriptorD3D12.NumRenderTargets);
++        for (int i = 0; i < 8; i++) add("rtv", descriptorD3D12.RTVFormats[i]);
++        add("dsv", descriptorD3D12.DSVFormat);
++        add("samples", descriptorD3D12.SampleDesc.Count);
++        add("quality", descriptorD3D12.SampleDesc.Quality);
++        add("mask", descriptorD3D12.SampleMask);
++        add("a2c", descriptorD3D12.BlendState.AlphaToCoverageEnable);
++        add("indep", descriptorD3D12.BlendState.IndependentBlendEnable);
++        for (int i = 0; i < 8; i++) {
++            const auto& b = descriptorD3D12.BlendState.RenderTarget[i];
++            add("blend", b.BlendEnable);
++            add("logic", b.LogicOpEnable);
++            add("op", b.LogicOp);
++            add("write", b.RenderTargetWriteMask);
++        }
++        const auto& r = descriptorD3D12.RasterizerState;
++        add("fill", r.FillMode);
++        add("cull", r.CullMode);
++        add("ccw", r.FrontCounterClockwise);
++        add("bias", static_cast<uint32_t>(r.DepthBias));
++        add("clip", r.DepthClipEnable);
++        add("msaa", r.MultisampleEnable);
++        add("forced", r.ForcedSampleCount);
++        add("conservative", r.ConservativeRaster);
++        const auto& z = descriptorD3D12.DepthStencilState;
++        add("depth", z.DepthEnable);
++        add("zwrite", z.DepthWriteMask);
++        add("zfunc", z.DepthFunc);
++        add("stencil", z.StencilEnable);
++        add("streams", descriptorD3D12.StreamOutput.NumEntries);
++        auto* root = mPipelineLayoutHandle->GetRootSignatureBlob();
++        d += " root=";
++        static const char* kHex = "0123456789abcdef";
++        if (root) {
++            const uint8_t* bytes = static_cast<const uint8_t*>(root->GetBufferPointer());
++            for (size_t i = 0; i < root->GetBufferSize(); i++) {
++                d += kHex[bytes[i] >> 4];
++                d += kHex[bytes[i] & 15];
++            }
++        }
++        auto hex = [](const void* data, size_t size) {
++            static const char* kDigits = "0123456789abcdef";
++            std::string out;
++            const uint8_t* b = static_cast<const uint8_t*>(data);
++            for (size_t i = 0; i < size; i++) {
++                out += kDigits[b[i] >> 4];
++                out += kDigits[b[i] & 15];
++            }
++            return out;
++        };
++        d += " vsbytes=" + hex(descriptorD3D12.VS.pShaderBytecode, descriptorD3D12.VS.BytecodeLength);
++        d += " psbytes=" + hex(descriptorD3D12.PS.pShaderBytecode, descriptorD3D12.PS.BytecodeLength);
++        device->EmitLog(wgpu::LoggingType::Info, d);
++    }
+     platform::metrics::DawnHistogramTimer cacheTimer(device->GetPlatform());
+     HRESULT result =
+         d3d12Device->CreateGraphicsPipelineState(&descriptorD3D12, IID_PPV_ARGS(&mPipelineState));
+@@ -498,7 +567,10 @@ MaybeUnknownError RenderPipeline::InitializeImpl() {
+     }
+     DAWN_TRY(CheckHRESULT(result, "D3D12 create graphics pipeline state"));
+ 
+-    if (!cacheHit) {
++    // Cartouche (Xbox): on the console's app driver, ID3D12PipelineState::GetCachedBlob removes the device
++    // (DXGI_ERROR_DRIVER_INTERNAL_ERROR). The pipeline is not kept there; the shaders still are.
++    constexpr bool kGetCachedBlob = !DAWN_PLATFORM_IS(WINUWP);
++    if (!cacheHit && kGetCachedBlob) {
+         // Cache misses, need to get pipeline cached blob and store.
+         cacheTimer.RecordMicroseconds("D3D12.CreateGraphicsPipelineState.CacheMiss");
+         ComPtr<ID3DBlob> d3dBlob;
+@@ -507,7 +579,7 @@ MaybeUnknownError RenderPipeline::InitializeImpl() {
+                              "D3D12 render pipeline state get cached blob"))) {
+             device->StoreCachedBlob(GetCacheKey(), CreateBlob(std::move(d3dBlob)));
+         }
+-    } else {
++    } else if (cacheHit) {
+         cacheTimer.RecordMicroseconds("D3D12.CreateGraphicsPipelineState.CacheHit");
+     }
+ 
