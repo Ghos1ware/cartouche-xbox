@@ -17,6 +17,7 @@
 #include "StreamPage.xaml.h"
 #include "WebGamePage.xaml.h"
 #include "WebGpuGate.h"
+#include "D3D12Probe/D3D12Probe.h"
 #include "State/MoonlightClient.h"
 #include "State/StreamConfiguration.h"
 #include "Utils.hpp"
@@ -574,6 +575,23 @@ void CartouchePage::Start() {
 	if (diagOn) {
 		auto version = Windows::ApplicationModel::Package::Current->Id->Version;
 		Diag(L"args " + browserArgs);
+		// DirectX 12 from the app itself, outside the browser (the « d3d12-test » file): what a native runtime would get.
+		{
+			WIN32_FILE_ATTRIBUTE_DATA probe;
+			if (GetFileAttributesExW((diagFolder + L"\\d3d12-test").c_str(), GetFileExInfoStandard, &probe)) {
+				create_task([]() {
+					Sleep(3000);
+					Diag(L"d3d12 probe start");
+					try {
+						for (const auto& line : RunD3D12Probe()) Diag(line);
+					}
+					catch (...) {
+						Diag(L"d3d12 probe threw");
+					}
+					Diag(L"d3d12 probe end");
+				});
+			}
+		}
 		Diag(L"start " + std::to_wstring(version.Major) + L"." + std::to_wstring(version.Minor) + L"." + std::to_wstring(version.Build) + L" size=" + std::to_wstring(static_cast<int>(ActualWidth)) + L"x" + std::to_wstring(static_cast<int>(ActualHeight)));
 		create_task([weakThis]() {
 			while (true) {

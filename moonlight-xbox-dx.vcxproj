@@ -485,6 +485,7 @@
     <ClInclude Include="Streaming\Pacer.h" />
     <ClInclude Include="Streaming\PacerCompat.h" />
     <ClInclude Include="Streaming\PyroWave\D3D12Decoder.h" />
+    <ClInclude Include="Pages\D3D12Probe\D3D12Probe.h" />
     <ClInclude Include="Streaming\PyroWave\FramePool.h" />
     <ClInclude Include="Streaming\PyroWave\PyroWaveFraming.h" />
     <ClInclude Include="Streaming\PyroWaveDecoder.h" />
@@ -637,6 +638,7 @@
     <ClCompile Include="Streaming\FrameQueue.cpp" />
     <ClCompile Include="Streaming\LogRenderer.cpp" />
     <ClCompile Include="Streaming\Pacer.cpp" />
+    <ClCompile Include="Pages\D3D12Probe\D3D12Probe.cpp" />
     <ClCompile Include="Streaming\PyroWave\D3D12Decoder.cpp">
       <AdditionalIncludeDirectories>$(ProjectDir)third_party\pyrowave\d3d12;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
